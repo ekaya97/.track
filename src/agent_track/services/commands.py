@@ -48,6 +48,13 @@ def cmd_init(_args: argparse.Namespace) -> None:
     if not paths.CONVENTIONS_FILE.exists():
         paths.CONVENTIONS_FILE.write_text(_load_conventions(), encoding="utf-8")
     print("Initialized .track/ directory.")
+    claude_md = paths.TRACK_DIR.parent / "CLAUDE.md"
+    if not claude_md.exists():
+        print(
+            "Tip: Copy the agent protocol into your CLAUDE.md so Claude Code "
+            "sessions auto-register.\n"
+            "  See: https://github.com/ekaya97/.track#claudemd-integration"
+        )
 
 
 def cmd_create(args: argparse.Namespace) -> None:

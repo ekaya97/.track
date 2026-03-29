@@ -84,6 +84,44 @@ track stop            # stop the background server
 
 The dashboard shows a kanban board, active agents, file ownership conflicts, and the message board. Auto-refreshes every 5 seconds.
 
+## CLAUDE.md Integration
+
+To make Claude Code sessions automatically follow the agent protocol, add the following to your project's `CLAUDE.md`:
+
+```markdown
+## Agent Protocol
+
+This project uses `track` for multi-agent coordination. All task state lives in `.track/`.
+
+### On session start
+1. Register: `track register --capabilities python,ui`
+2. Read the board: `track board --last 20`
+3. Check work: `track list --status backlog`
+4. Claim a ticket: `track claim T-NNNN --agent {your-id}`
+
+### While working
+- Log progress: `track log T-NNNN --agent {your-id} -m "what you did"`
+- Track files: `track files --add path/to/file.py --agent {your-id} --ticket T-NNNN`
+- Check ownership: `track files --check path/to/file.py`
+- Post to board: `track board --agent {your-id} --ticket T-NNNN -m "message"`
+- Heartbeat: `track heartbeat --agent {your-id}`
+
+### When done
+- `track update T-NNNN --status review --agent {your-id}`
+
+### On session end
+- `track deregister --agent {your-id} --release-tickets`
+
+### Rules
+- One ticket at a time
+- Check the board before claiming
+- Don't edit another agent's files without checking ownership
+- Reference ticket IDs in commits: `T-0001: description`
+- Never modify `.track/` files directly — use the `track` CLI
+```
+
+A full example is available at [`src/agent_track/data/CLAUDE.md.example`](src/agent_track/data/CLAUDE.md.example).
+
 ## Platform
 
 macOS and Linux only. Uses `fcntl.flock` for file locking and `os.fork()` for daemon mode, which are not available on Windows.

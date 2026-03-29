@@ -1,0 +1,81 @@
+# CLAUDE.md — agent-track integration
+
+<!-- Copy the relevant sections below into your project's CLAUDE.md -->
+
+## Agent Protocol
+
+This project uses `track` for multi-agent coordination. All task state lives in `.track/`.
+
+### On session start
+
+1. Register yourself:
+   ```bash
+   track register --capabilities python,ui
+   ```
+   Note the agent ID printed (e.g. `agent-alpha`). Use it for all subsequent commands.
+
+2. Read the board for context from other agents:
+   ```bash
+   track board --last 20
+   ```
+
+3. Check available work:
+   ```bash
+   track list --status backlog
+   ```
+
+4. Claim a ticket before starting work:
+   ```bash
+   track claim T-NNNN --agent {your-id}
+   track update T-NNNN --status in-progress --agent {your-id}
+   ```
+
+### While working
+
+- **Log progress** after meaningful steps:
+  ```bash
+  track log T-NNNN --agent {your-id} -m "what you did"
+  ```
+
+- **Track files** you modify so other agents avoid conflicts:
+  ```bash
+  track files --add path/to/file.py --agent {your-id} --ticket T-NNNN
+  ```
+
+- **Check file ownership** before editing a file another agent might be working on:
+  ```bash
+  track files --check path/to/file.py
+  ```
+
+- **Post to the board** for questions, blockers, or notes to other agents:
+  ```bash
+  track board --agent {your-id} --ticket T-NNNN --tag note -m "message"
+  ```
+  Available tags: `note`, `blocked`, `question`, `answer`, `conflict`
+
+- **Send heartbeats** periodically (agents are marked stale after 30 minutes):
+  ```bash
+  track heartbeat --agent {your-id}
+  ```
+
+### When done with a ticket
+
+```bash
+track update T-NNNN --status review --agent {your-id}
+track log T-NNNN --agent {your-id} -m "Summary of changes"
+```
+
+### On session end
+
+Always deregister and release any unfinished tickets:
+```bash
+track deregister --agent {your-id} --release-tickets
+```
+
+### Rules
+
+- **One ticket at a time.** Finish or release before claiming another.
+- **Check the board first.** Another agent may already be working on what you need.
+- **Don't edit another agent's files** without checking ownership first.
+- **Reference ticket IDs in commits:** `T-0001: description of change`
+- **Never modify `.track/` files directly.** Always use the `track` CLI.
