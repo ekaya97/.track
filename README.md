@@ -74,7 +74,9 @@ Valid transitions are enforced. Use `--force` to override.
 
 ## TRACK_DIR Discovery
 
-By default, `track` walks up from the current directory to find a `.track/` folder (like `git` finds `.git/`). You can override this with the `TRACK_DIR` environment variable:
+`track init` always creates `.track/` in the current working directory. All other commands walk up from the current directory to find an existing `.track/` folder (like `git` finds `.git/`).
+
+You can override discovery with the `TRACK_DIR` environment variable (always takes priority):
 
 ```bash
 TRACK_DIR=/path/to/.track track list
