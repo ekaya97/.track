@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt=".track logo" width="80">
+</p>
+
 # .track
 
 [![License](https://img.shields.io/github/license/ekaya97/.track)](LICENSE)

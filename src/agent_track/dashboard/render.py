@@ -15,6 +15,12 @@ from agent_track.services.models import (
 )
 
 _STATIC_DIR = Path(__file__).parent
+_FAVICON_SVG = (
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E"
+    "%3Crect width='32' height='32' rx='6' fill='%23fff'/%3E"
+    "%3Ctext x='16' y='23' text-anchor='middle' font-family='monospace' "
+    "font-size='18' font-weight='700' fill='%23000'%3E.t%3C/text%3E%3C/svg%3E"
+)
 
 _css_cache: str | None = None
 _js_cache: str | None = None
@@ -86,6 +92,7 @@ def render_page(title: str, body: str) -> str:
         f"<!DOCTYPE html>\n"
         f'<html lang="en"><head><meta charset="utf-8">'
         f'<meta name="viewport" content="width=device-width,initial-scale=1">\n'
+        f'<link rel="icon" href="data:image/svg+xml,{_FAVICON_SVG}">\n'
         f"<title>{_h(title)}</title><style>{_load_css()}</style></head>\n"
         f"<body>{body}<script>{_load_js()}</script></body></html>"
     )
