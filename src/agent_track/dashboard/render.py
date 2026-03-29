@@ -91,13 +91,15 @@ def render_page(title: str, body: str) -> str:
     )
 
 
-def render_dashboard() -> str:
+def render_dashboard(agent_filter: str | None = None) -> str:
     tickets = all_tickets()
     agents = all_agents()
     board_entries = parse_board_entries(limit=20)
 
     by_status: dict[str, list] = {s: [] for s in paths.STATUSES}
     for meta, body, path in tickets:
+        if agent_filter and meta.get("claimed_by") != agent_filter:
+            continue
         s = meta.get("status", "backlog")
         if s in by_status:
             by_status[s].append(meta)
@@ -117,6 +119,13 @@ def render_dashboard() -> str:
         f"</div></div>"
     )
 
+    filter_html = ""
+    if agent_filter:
+        filter_html = (
+            f'<div class="filter-bar">Filtering by <strong>{_h(agent_filter)}</strong>'
+            f' <a href="/" class="filter-clear">&times; Clear</a></div>'
+        )
+
     kanban = '<div class="kanban">'
     for status in paths.STATUSES:
         items = by_status[status]
@@ -125,6 +134,7 @@ def render_dashboard() -> str:
             f'<span class="col-title">{_h(status)}</span>'
             f'<span class="col-count">{len(items)}</span></div>'
         )
+        kanban += '<div class="kanban-col-cards">'
         if not items:
             kanban += '<div class="empty"><div class="empty-icon">&mdash;</div></div>'
         for t in items:
@@ -144,7 +154,7 @@ def render_dashboard() -> str:
             for lbl in labels:
                 kanban += f'<span class="badge badge-label">{_h(lbl)}</span>'
             kanban += "</div></a>"
-        kanban += "</div>"
+        kanban += "</div></div>"
     kanban += "</div>"
 
     agents_html = (
@@ -160,8 +170,10 @@ def render_dashboard() -> str:
         ticket = a.get("current_ticket")
         caps = a.get("capabilities", [])
         n_files = len(a.get("files_modified", []))
+        is_selected = agent_filter == a["id"]
+        card_cls = "agent-card agent-card-selected" if is_selected else "agent-card"
         agents_html += (
-            f'<div class="agent-card"><div class="agent-top">'
+            f'<a href="/?agent={_h(a["id"])}" class="{card_cls}"><div class="agent-top">'
             f'<span class="agent-name">{_h(a["id"])}</span>'
             f'<span class="badge badge-status-{_h(st)}">{_h(st)}</span></div>'
             f'<div class="agent-detail-row">'
@@ -178,7 +190,7 @@ def render_dashboard() -> str:
                 )
                 + "</div>"
             )
-        agents_html += "</div>"
+        agents_html += "</a>"
     agents_html += "</div>"
 
     file_map: dict[str, list[tuple[str, str]]] = {}
@@ -242,7 +254,7 @@ def render_dashboard() -> str:
 
     return render_page(
         ".track/ Dashboard",
-        f"{header}{kanban}<div class='panels'>{agents_html}{files_html}</div>"
+        f"{header}{filter_html}{kanban}<div class='panels'>{agents_html}{files_html}</div>"
         f"<div class='panels'>{board_html}</div>",
     )
 

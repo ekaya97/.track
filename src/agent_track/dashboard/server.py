@@ -21,7 +21,7 @@ class TrackHandler(http.server.BaseHTTPRequestHandler):
         path = parsed.path
         qs = parse_qs(parsed.query)
         if path == "/":
-            self._html(render_dashboard())
+            self._html(render_dashboard(agent_filter=qs.get("agent", [None])[0]))
         elif path == "/ticket":
             self._html(render_ticket_detail(qs.get("id", [""])[0]))
         elif path == "/api/tickets":
