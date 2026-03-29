@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agent-track"
 version = "0.1.0"
-description = "Lightweight ticketing & agent coordination for multi-agent coding workflows"
+description = ".track — lightweight ticketing & agent coordination for multi-agent coding workflows"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

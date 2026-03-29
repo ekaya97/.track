@@ -57,12 +57,12 @@ NATO = [
 
 
 def _find_track_dir() -> Path:
-    """Discover the .track/ directory.
+    """Discover an existing .track/ directory.
 
     Resolution order:
     1. TRACK_DIR environment variable (absolute path)
     2. Walk up from CWD looking for a .track/ directory
-    3. Fall back to CWD/.track (used by `track init` to create it)
+    3. Fall back to CWD/.track
     """
     env = os.environ.get("TRACK_DIR")
     if env:
@@ -81,15 +81,12 @@ def _find_track_dir() -> Path:
     return Path.cwd().resolve() / ".track"
 
 
-def resolve_paths() -> None:
-    """Set module-level path variables based on discovered .track/ location.
-
-    Called once from main() before any command runs.
-    """
+def _set_paths(track_dir: Path) -> None:
+    """Set all module-level path variables from a given .track/ root."""
     global TRACK_DIR, TICKETS_DIR, AGENTS_DIR, LOCKS_DIR, ARCHIVE_DIR
     global BOARD_FILE, CONVENTIONS_FILE, SERVER_PID_FILE
 
-    TRACK_DIR = _find_track_dir()
+    TRACK_DIR = track_dir
     TICKETS_DIR = TRACK_DIR / "tickets"
     AGENTS_DIR = TRACK_DIR / "agents"
     LOCKS_DIR = TRACK_DIR / "locks"
@@ -97,3 +94,20 @@ def resolve_paths() -> None:
     BOARD_FILE = TRACK_DIR / "BOARD.md"
     CONVENTIONS_FILE = TRACK_DIR / "CONVENTIONS.md"
     SERVER_PID_FILE = LOCKS_DIR / "server.pid"
+
+
+def resolve_paths(use_cwd: bool = False) -> None:
+    """Set module-level path variables.
+
+    Args:
+        use_cwd: If True, use CWD/.track (for `track init`) instead of
+                 walking up to find an existing .track/ directory.
+                 The TRACK_DIR env var always takes priority regardless.
+    """
+    env = os.environ.get("TRACK_DIR")
+    if env:
+        _set_paths(Path(env).resolve())
+    elif use_cwd:
+        _set_paths(Path.cwd().resolve() / ".track")
+    else:
+        _set_paths(_find_track_dir())

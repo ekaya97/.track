@@ -1,4 +1,7 @@
-# agent-track
+# .track
+
+[![License](https://img.shields.io/github/license/ekaya97/.track)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/agent-track)](https://pypi.org/project/agent-track/)
 
 Lightweight ticketing & agent coordination for multi-agent coding workflows.
 
@@ -6,11 +9,15 @@ Built to orchestrate multiple Claude Code sessions (or any AI agents) working on
 
 ## Install
 
+The PyPI package name is `agent-track` (`.track` is not a valid package name):
+
 ```bash
 pipx install agent-track    # recommended
 # or
 pip install agent-track
 ```
+
+This gives you the `track` command.
 
 ## Quick Start
 

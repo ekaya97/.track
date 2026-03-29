@@ -33,7 +33,7 @@ from agent_track.dashboard import cmd_serve, cmd_stop
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="track", description="Lightweight ticketing & agent coordination."
+        prog="track", description=".track — lightweight ticketing & agent coordination."
     )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}"
@@ -138,12 +138,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    resolve_paths()
     parser = build_parser()
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
         sys.exit(1)
+    # `init` always creates .track/ in CWD; other commands walk up to find it
+    resolve_paths(use_cwd=(args.command == "init"))
     commands = {
         "init": cmd_init,
         "create": cmd_create,
