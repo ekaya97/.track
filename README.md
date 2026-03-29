@@ -7,6 +7,8 @@ Lightweight ticketing & agent coordination for multi-agent coding workflows.
 
 Built to orchestrate multiple Claude Code sessions (or any AI agents) working on the same codebase in parallel. All state lives in a `.track/` directory as markdown and JSON files. No database, no external services, **zero dependencies** -- Python stdlib only.
 
+![Dashboard](docs/dashboard.png)
+
 ## Install
 
 The PyPI package name is `agent-track` (`.track` is not a valid package name):
@@ -91,7 +93,9 @@ track serve -d        # background mode
 track stop            # stop the background server
 ```
 
-The dashboard shows a kanban board, active agents, file ownership conflicts, and the message board. Auto-refreshes every 5 seconds.
+The dashboard shows a kanban board, active agents, file ownership conflicts, and the message board. Auto-refreshes every 5 seconds. Click an agent card to filter by that agent.
+
+![Ticket Detail](docs/ticket_detail.png)
 
 ## CLAUDE.md Integration
 
