@@ -137,13 +137,32 @@ def migrate_ticket_to_dir(ticket_id: str) -> Path:
 # ── Agent I/O ─────────────────────────────────────────────────────────────────
 
 
-def read_agent(agent_id: str) -> dict:
-    """Read an agent JSON file."""
+def find_agent(agent_id: str) -> dict | None:
+    """Find an agent by ID. Checks filename first, then scans id fields.
+
+    Returns None if not found (no error printed).
+    """
     path = paths.AGENTS_DIR / f"{agent_id}.json"
-    if not path.exists():
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    if paths.AGENTS_DIR.exists():
+        for f in paths.AGENTS_DIR.glob("*.json"):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if data.get("id") == agent_id:
+                    return data
+            except (json.JSONDecodeError, OSError):
+                pass
+    return None
+
+
+def read_agent(agent_id: str) -> dict:
+    """Read an agent JSON file. Exits with error if not found."""
+    data = find_agent(agent_id)
+    if data is None:
         print(f"Error: Agent '{agent_id}' not found.", file=sys.stderr)
         sys.exit(1)
-    return json.loads(path.read_text(encoding="utf-8"))
+    return data
 
 
 def write_agent(data: dict) -> None:

@@ -14,6 +14,7 @@ from agent_track.services.models import (
     BOARD_HEADER,
     all_agents,
     all_tickets,
+    find_agent,
     next_ticket_id,
     post_to_board,
     parse_board_entries,
@@ -25,6 +26,27 @@ from agent_track.services.models import (
 from agent_track.services.utils import ConcurrentAccessError, file_lock, now_iso
 
 _DATA_DIR = Path(__file__).parent.parent / "data"
+
+
+def _detect_current_agent() -> dict | None:
+    """Find the active agent for the current session.
+
+    Scans agent files for the most recently active agent.
+    Returns the agent data dict or None.
+    """
+    if not paths.AGENTS_DIR.exists():
+        return None
+    best = None
+    for f in paths.AGENTS_DIR.glob("*.json"):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            if data.get("status") != "active":
+                continue
+            if best is None or data.get("last_heartbeat", "") > best.get("last_heartbeat", ""):
+                best = data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return best
 
 
 def _load_conventions() -> str:
@@ -112,41 +134,55 @@ def cmd_init(_args: argparse.Namespace) -> None:
 
 
 def cmd_create(args: argparse.Namespace) -> None:
+    # Resolve description: --desc text or --body (legacy)
+    desc = getattr(args, "desc", None) or getattr(args, "body", None) or ""
+
+    # Auto-claim: detect current agent unless --no-claim is set
+    no_claim = getattr(args, "no_claim", False)
+    agent_data = None
+    if not no_claim:
+        agent_data = _detect_current_agent()
+
     with file_lock("_create.lock"):
         tid = next_ticket_id()
+        creator = args.by if hasattr(args, "by") and args.by else (
+            agent_data["id"] if agent_data else "human"
+        )
         meta = {
             "id": tid,
             "title": args.title,
-            "status": "backlog",
-            "priority": args.priority or "medium",
+            "status": "claimed" if agent_data and not no_claim else "backlog",
+            "priority": getattr(args, "priority", None) or "medium",
             "created": now_iso(),
-            "created_by": args.by or "human",
-            "claimed_by": None,
-            "claimed_at": None,
+            "created_by": creator,
+            "claimed_by": agent_data["id"] if agent_data and not no_claim else None,
+            "claimed_at": now_iso() if agent_data and not no_claim else None,
             "labels": [lbl.strip() for lbl in args.labels.split(",")]
-            if args.labels
+            if getattr(args, "labels", None)
             else [],
             "branch": None,
             "files": [],
             "depends_on": [d.strip() for d in args.depends_on.split(",")]
-            if args.depends_on
+            if getattr(args, "depends_on", None)
             else [],
         }
-        body_text = args.body or ""
-        body = f"""## Description
-
-{body_text}
-
-## Acceptance Criteria
-
-- [ ] (define criteria)
-
-## Work Log
-"""
+        body = f"## Description\n\n{desc}\n\n## Work Log\n"
         path = paths.TICKETS_DIR / f"{tid}.md"
         write_ticket(meta, body, path)
-    post_to_board(meta["created_by"], tid, "created", f"Created: {args.title}")
-    print(f"Created {tid}: {args.title}")
+
+    post_to_board(creator, tid, "created", f"Created: {args.title}")
+    if agent_data and not no_claim:
+        # Update agent record
+        agent_data["current_ticket"] = tid
+        agent_data["last_heartbeat"] = now_iso()
+        agent_data.setdefault("history", []).append(
+            {"ticket": tid, "action": "claimed", "timestamp": now_iso()}
+        )
+        write_agent(agent_data)
+        post_to_board(agent_data["id"], tid, "claimed", f"Claiming {tid}: {args.title}")
+        print(f"Created and claimed {tid}: {args.title}")
+    else:
+        print(f"Created {tid}: {args.title}")
 
 
 def cmd_list(args: argparse.Namespace) -> None:
@@ -223,16 +259,14 @@ def cmd_claim(args: argparse.Namespace) -> None:
             meta["claimed_by"] = agent
             meta["claimed_at"] = now_iso()
             write_ticket(meta, body, path)
-            try:
-                adata = read_agent(agent)
+            adata = find_agent(agent)
+            if adata:
                 adata["current_ticket"] = tid
                 adata["last_heartbeat"] = now_iso()
                 adata.setdefault("history", []).append(
                     {"ticket": tid, "action": "claimed", "timestamp": now_iso()}
                 )
                 write_agent(adata)
-            except SystemExit:
-                pass
     except ConcurrentAccessError:
         print(
             f"Error: {tid} is being claimed by another agent right now. Try again.",
@@ -270,8 +304,8 @@ def cmd_update(args: argparse.Namespace) -> None:
                 meta["claimed_by"] = None
                 meta["claimed_at"] = None
             if new_status == "done" and args.agent:
-                try:
-                    adata = read_agent(args.agent)
+                adata = find_agent(args.agent)
+                if adata:
                     if adata.get("current_ticket") == tid:
                         adata["current_ticket"] = None
                     adata.setdefault("history", []).append(
@@ -282,8 +316,6 @@ def cmd_update(args: argparse.Namespace) -> None:
                         }
                     )
                     write_agent(adata)
-                except SystemExit:
-                    pass
             if args.agent:
                 post_to_board(
                     args.agent,
@@ -321,12 +353,10 @@ def cmd_log(args: argparse.Namespace) -> None:
         else:
             body = body + "\n## Work Log\n" + entry
         write_ticket(meta, body, path)
-    try:
-        adata = read_agent(args.agent)
+    adata = find_agent(args.agent)
+    if adata:
         adata["last_heartbeat"] = now_iso()
         write_agent(adata)
-    except SystemExit:
-        pass
     print(f"Logged to {tid}.")
 
 
@@ -439,8 +469,8 @@ def cmd_files(args: argparse.Namespace) -> None:
         if not args.agent or not args.ticket:
             print("Error: --agent and --ticket required with --add.", file=sys.stderr)
             sys.exit(1)
-        try:
-            adata = read_agent(args.agent)
+        adata = find_agent(args.agent)
+        if adata:
             adata.setdefault("files_modified", []).append(
                 {
                     "path": args.add,
@@ -449,8 +479,6 @@ def cmd_files(args: argparse.Namespace) -> None:
                 }
             )
             write_agent(adata)
-        except SystemExit:
-            print(f"Warning: Agent '{args.agent}' not registered.")
         with file_lock(f"{args.ticket}.lock"):
             meta, body, path = read_ticket(args.ticket)
             files = meta.get("files") or []
