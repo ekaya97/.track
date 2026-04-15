@@ -19,6 +19,52 @@ _TEST_PATTERNS = re.compile(
 )
 
 
+def _get_last_todos(session_id: str) -> list[dict]:
+    """Read the most recent todo list from the activity log."""
+    activity_file = paths.SESSIONS_DIR / session_id / "activity.jsonl"
+    if not activity_file.exists():
+        return []
+    # Read backwards to find the last TodoWrite entry
+    try:
+        lines = activity_file.read_text(encoding="utf-8").strip().split("\n")
+        for line in reversed(lines):
+            if not line.strip():
+                continue
+            entry = json.loads(line)
+            if entry.get("tool") == "TodoWrite" and "todos" in entry:
+                return entry["todos"]
+    except (json.JSONDecodeError, OSError):
+        pass
+    return []
+
+
+def _diff_todos(session_id: str, new_todos: list[dict]) -> list[dict]:
+    """Compute changes between previous and current todo lists."""
+    old_todos = _get_last_todos(session_id)
+    old_by_content = {t.get("content", ""): t for t in old_todos}
+    new_by_content = {t.get("content", ""): t for t in new_todos}
+
+    changes = []
+    # New or status-changed items
+    for content, todo in new_by_content.items():
+        old = old_by_content.get(content)
+        if old is None:
+            changes.append({"action": "added", "content": content, "status": todo.get("status")})
+        elif old.get("status") != todo.get("status"):
+            changes.append({
+                "action": "status_changed",
+                "content": content,
+                "from": old.get("status"),
+                "to": todo.get("status"),
+            })
+    # Removed items
+    for content in old_by_content:
+        if content not in new_by_content:
+            changes.append({"action": "removed", "content": content})
+
+    return changes
+
+
 def _read_agent(session_id: str) -> dict | None:
     """Read agent record for a session, returning None if not found."""
     agent_path = paths.AGENTS_DIR / f"{session_id}.json"
@@ -71,6 +117,12 @@ def _build_activity_entry(event: dict) -> dict:
     if tool_name == "Bash":
         entry["command"] = tool_input.get("command", "")
         entry["is_test_run"] = _is_test_run(event)
+
+    # TodoWrite — capture todos and diff against previous state
+    if tool_name == "TodoWrite":
+        todos = tool_input.get("todos", [])
+        entry["todos"] = todos
+        entry["todo_changes"] = _diff_todos(event.get("session_id", ""), todos)
 
     # Failure info
     if is_failure:
@@ -150,6 +202,8 @@ def handle_post_tool_use(event: dict) -> None:
 
     # Build and append activity entry
     entry = _build_activity_entry(event)
+    if agent_data and agent_data.get("current_ticket"):
+        entry["ticket"] = agent_data["current_ticket"]
     _append_activity(session_id, entry)
 
     if not agent_data:

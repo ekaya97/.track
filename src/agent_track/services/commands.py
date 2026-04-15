@@ -34,14 +34,35 @@ def _load_conventions() -> str:
 _DEFAULT_HOOKS = {
     "hooks": {
         "SessionStart": [
-            {"matcher": "startup|resume", "command": "track hook session-start"}
+            {
+                "matcher": "startup|resume",
+                "hooks": [{"type": "command", "command": "track hook session-start"}],
+            }
         ],
         "PreToolUse": [
-            {"matcher": "Write|Edit|Read|Bash", "command": "track hook pre-tool-use"}
+            {
+                "matcher": "Write|Edit|Read|Bash",
+                "hooks": [{"type": "command", "command": "track hook pre-tool-use"}],
+            }
         ],
-        "PostToolUse": [{"command": "track hook post-tool-use"}],
-        "PostToolUseFailure": [{"command": "track hook post-tool-use"}],
-        "SessionEnd": [{"command": "track hook session-end"}],
+        "PostToolUse": [
+            {
+                "matcher": "",
+                "hooks": [{"type": "command", "command": "track hook post-tool-use"}],
+            }
+        ],
+        "PostToolUseFailure": [
+            {
+                "matcher": "",
+                "hooks": [{"type": "command", "command": "track hook post-tool-use"}],
+            }
+        ],
+        "SessionEnd": [
+            {
+                "matcher": "",
+                "hooks": [{"type": "command", "command": "track hook session-end"}],
+            }
+        ],
     }
 }
 

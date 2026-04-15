@@ -226,6 +226,52 @@ class TestPostToolUse:
         entry = json.loads(activity_file.read_text().strip())
         assert entry["is_interrupt"] is True
 
+    def test_todo_write_captures_todos(self, track_env):
+        tmp_path, track, home, env, sid = track_env
+        todos = [
+            {"content": "Write tests", "status": "completed", "activeForm": "Writing tests"},
+            {"content": "Implement feature", "status": "in_progress", "activeForm": "Implementing"},
+        ]
+        payload = _make_event(sid, "TodoWrite", {"todos": todos})
+        _run_hook(payload, env, tmp_path)
+
+        activity_file = home / "sessions" / sid / "activity.jsonl"
+        entry = json.loads(activity_file.read_text().strip().split("\n")[-1])
+        assert entry["tool"] == "TodoWrite"
+        assert len(entry["todos"]) == 2
+        assert entry["todos"][0]["content"] == "Write tests"
+        # First write — all items are "added"
+        assert len(entry["todo_changes"]) == 2
+        assert all(c["action"] == "added" for c in entry["todo_changes"])
+
+    def test_todo_write_diffs_changes(self, track_env):
+        tmp_path, track, home, env, sid = track_env
+        # First write
+        todos_v1 = [
+            {"content": "Task A", "status": "pending", "activeForm": "Doing A"},
+            {"content": "Task B", "status": "pending", "activeForm": "Doing B"},
+        ]
+        _run_hook(_make_event(sid, "TodoWrite", {"todos": todos_v1}), env, tmp_path)
+
+        # Second write — A completed, B removed, C added
+        todos_v2 = [
+            {"content": "Task A", "status": "completed", "activeForm": "Doing A"},
+            {"content": "Task C", "status": "in_progress", "activeForm": "Doing C"},
+        ]
+        _run_hook(_make_event(sid, "TodoWrite", {"todos": todos_v2}), env, tmp_path)
+
+        activity_file = home / "sessions" / sid / "activity.jsonl"
+        lines = activity_file.read_text().strip().split("\n")
+        entry = json.loads(lines[-1])
+        changes = entry["todo_changes"]
+
+        change_map = {c["content"]: c for c in changes}
+        assert change_map["Task A"]["action"] == "status_changed"
+        assert change_map["Task A"]["from"] == "pending"
+        assert change_map["Task A"]["to"] == "completed"
+        assert change_map["Task B"]["action"] == "removed"
+        assert change_map["Task C"]["action"] == "added"
+
     def test_handles_missing_agent_record_gracefully(self, track_env):
         tmp_path, track, home, env, sid = track_env
         # Use a session_id with no agent record

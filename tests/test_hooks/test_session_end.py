@@ -43,6 +43,16 @@ def track_env(tmp_path):
     }
     (home / "agents" / f"{sid}.json").write_text(json.dumps(agent))
 
+    # Create a ticket (in-progress, so it should NOT be released)
+    ticket_dir = track / "tickets" / "T-0001"
+    ticket_dir.mkdir(parents=True)
+    (ticket_dir / "ticket.md").write_text(
+        "---\nid: T-0001\ntitle: Test ticket\nstatus: in-progress\npriority: medium\n"
+        "created: 2026-04-15T10:00:00Z\ncreated_by: human\nclaimed_by: agent-alpha\n"
+        "claimed_at: 2026-04-15T10:05:00Z\nlabels: []\nbranch: null\nfiles: []\ndepends_on: []\n"
+        "---\n\n## Description\n\nTest.\n"
+    )
+
     # Create activity log
     session_dir = home / "sessions" / sid
     session_dir.mkdir()
@@ -152,13 +162,34 @@ class TestSessionEnd:
         board = (track / "BOARD.md").read_text()
         assert "session ended" in board.lower()
 
-    def test_does_not_release_tickets(self, track_env):
+    def test_does_not_release_in_progress_tickets(self, track_env):
+        """In-progress tickets stay claimed — stale reclaim handles them."""
         tmp_path, track, home, env, sid = track_env
         _run_hook(_make_event(sid), env, tmp_path)
 
         data = json.loads((home / "agents" / f"{sid}.json").read_text())
-        # current_ticket should still be set (not released)
         assert data["current_ticket"] == "T-0001"
+
+    def test_releases_claimed_tickets(self, track_env):
+        """Tickets still in 'claimed' status are released back to backlog."""
+        tmp_path, track, home, env, sid = track_env
+        # Change ticket to claimed (not in-progress)
+        ticket_path = track / "tickets" / "T-0001" / "ticket.md"
+        text = ticket_path.read_text()
+        text = text.replace("status: in-progress", "status: claimed")
+        ticket_path.write_text(text)
+
+        _run_hook(_make_event(sid), env, tmp_path)
+
+        # Ticket should be back to backlog
+        from agent_track.services.frontmatter import parse_frontmatter
+        meta, _ = parse_frontmatter(ticket_path.read_text())
+        assert meta["status"] == "backlog"
+        assert meta["claimed_by"] is None
+
+        # Agent's current_ticket should be cleared
+        data = json.loads((home / "agents" / f"{sid}.json").read_text())
+        assert data["current_ticket"] is None
 
     def test_handles_missing_agent_record(self, track_env):
         tmp_path, track, home, env, sid = track_env

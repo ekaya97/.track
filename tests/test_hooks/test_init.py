@@ -61,7 +61,8 @@ class TestInitHooks:
         # Check commands reference track hook subcommands
         for key, entries in hooks["hooks"].items():
             for entry in entries:
-                assert "track hook" in entry["command"]
+                for hook in entry["hooks"]:
+                    assert "track hook" in hook["command"]
 
     def test_init_does_not_overwrite_existing_hooks_json(self, track_env):
         tmp_path, env = track_env

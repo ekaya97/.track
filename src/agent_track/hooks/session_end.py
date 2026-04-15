@@ -6,8 +6,9 @@ import json
 from collections import Counter
 
 from agent_track.services import paths
-from agent_track.services.models import post_to_board
-from agent_track.services.utils import atomic_write, now_iso
+from agent_track.services.frontmatter import parse_frontmatter
+from agent_track.services.models import post_to_board, write_ticket
+from agent_track.services.utils import atomic_write, file_lock, now_iso
 
 
 def _read_activity(session_id: str) -> list[dict]:
@@ -104,7 +105,38 @@ def handle_session_end(event: dict) -> None:
         session_dir / "summary.json", json.dumps(summary, indent=2) + "\n"
     )
 
-    # Deregister agent (keep current_ticket — stale reclaim handles cleanup)
+    # Release tickets still in "claimed" status (agent never started work).
+    # Keep "in-progress" tickets — stale reclaim handles those.
+    ticket_id = agent_data.get("current_ticket")
+    if ticket_id:
+        try:
+            from agent_track.services.models import _resolve_ticket_path
+
+            ticket_path = _resolve_ticket_path(ticket_id)
+            if ticket_path and ticket_path.exists():
+                text = ticket_path.read_text(encoding="utf-8")
+                meta, body = parse_frontmatter(text)
+                if meta.get("status") == "claimed" and meta.get("claimed_by") == agent_data.get("id"):
+                    with file_lock(f"{ticket_id}.lock"):
+                        # Re-read under lock
+                        text = ticket_path.read_text(encoding="utf-8")
+                        meta, body = parse_frontmatter(text)
+                        if meta.get("status") == "claimed":
+                            meta["status"] = "backlog"
+                            meta["claimed_by"] = None
+                            meta["claimed_at"] = None
+                            write_ticket(meta, body, ticket_path)
+                            post_to_board(
+                                agent_data.get("id", "unknown"),
+                                ticket_id,
+                                "status:backlog",
+                                f"Released {ticket_id} (session ended, work not started)",
+                            )
+                    agent_data["current_ticket"] = None
+        except Exception:
+            pass
+
+    # Deregister agent
     agent_data["status"] = "deregistered"
     agent_data["last_heartbeat"] = now_iso()
     agent_data.setdefault("history", []).append({

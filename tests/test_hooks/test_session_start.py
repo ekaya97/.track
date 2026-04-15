@@ -154,6 +154,20 @@ class TestSessionStart:
         # Should not add another registration message
         assert reg_count_after == reg_count_before
 
+    def test_deregistered_agent_name_not_reused(self, track_env):
+        """A deregistered agent's name should not be given to a new session."""
+        tmp_path, track, home, env = track_env
+        # Deregistered agent-alpha
+        existing = {"id": "agent-alpha", "session_id": "sess_old", "status": "deregistered"}
+        (home / "agents" / "sess_old.json").write_text(json.dumps(existing))
+
+        payload = _make_startup_event("sess_new")
+        _run_hook("session-start", payload, env, tmp_path)
+
+        data = json.loads((home / "agents" / "sess_new.json").read_text())
+        assert data["id"] != "agent-alpha"
+        assert data["id"] == "agent-bravo"  # next available
+
     def test_agent_record_has_session_id_and_model(self, track_env):
         tmp_path, track, home, env = track_env
         payload = _make_startup_event("sess_fields_test")

@@ -10,7 +10,11 @@ from agent_track.services.utils import atomic_write, now_iso
 
 
 def _pick_nato_alias() -> str:
-    """Pick the first unused NATO phonetic name for an agent ID."""
+    """Pick the first unused NATO phonetic name for an agent ID.
+
+    Considers ALL agent records (including deregistered) to avoid
+    reusing names from recently ended sessions.
+    """
     existing_ids: set[str] = set()
     if paths.AGENTS_DIR.exists():
         for f in paths.AGENTS_DIR.glob("*.json"):
@@ -25,7 +29,7 @@ def _pick_nato_alias() -> str:
         if candidate not in existing_ids:
             return candidate
 
-    # All NATO names taken — use session_id prefix
+    # All 26 NATO names taken — use hex suffix
     import secrets
 
     return f"agent-{secrets.token_hex(3)}"
