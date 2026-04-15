@@ -160,8 +160,12 @@ def run_analysis(
 
 def _run_analysis_modules(
     files: list[Path], project_root: Path, analysis_dir: Path
-) -> None:
-    """Run duplicates, coverage, and security analysis, writing JSON output."""
+) -> tuple[dict, dict, dict]:
+    """Run duplicates, coverage, and security analysis, writing JSON output.
+
+    Returns:
+        Tuple of (duplicates_result, coverage_result, security_result).
+    """
     from agent_track.analysis.duplicates import find_duplicates
     from agent_track.analysis.coverage import analyze_coverage
     from agent_track.analysis.security import scan_security
@@ -190,6 +194,8 @@ def _run_analysis_modules(
     sec_result = scan_security(file_sources)
     (analysis_dir / "security.json").write_text(json.dumps(sec_result, indent=2))
 
+    return dup_result, cov_result, sec_result
+
 
 # ── CLI command ───────────────────────────────────────────────────────────────
 
@@ -217,7 +223,35 @@ def cmd_analyze(args: argparse.Namespace) -> None:
     run_analysis(results, str(project_root), graph_dir=paths.GRAPH_DIR)
 
     # Run analysis modules and write JSON
-    _run_analysis_modules(files, project_root, paths.ANALYSIS_DIR)
+    dup_result, cov_result, sec_result = _run_analysis_modules(
+        files, project_root, paths.ANALYSIS_DIR
+    )
+
+    # Ticket generation from findings
+    if getattr(args, "create_tickets", False):
+        from agent_track.analysis.ticket_gen import generate_tickets_from_findings
+
+        finding_type = getattr(args, "type", None)
+        dry_run = getattr(args, "dry_run", False)
+
+        kwargs: dict = {"dry_run": dry_run}
+        if finding_type is None or finding_type == "duplicates":
+            kwargs["duplicates"] = dup_result
+        if finding_type is None or finding_type == "coverage":
+            kwargs["coverage"] = cov_result
+        if finding_type is None or finding_type == "security":
+            kwargs["security"] = sec_result
+
+        created = generate_tickets_from_findings(**kwargs)
+
+        if created:
+            action = "Would create" if dry_run else "Created"
+            print(f"\n{action} {len(created)} ticket(s) from findings:")
+            for t in created:
+                tid = t.get("id", "(preview)")
+                print(f"  {tid}: {t['title']}")
+        else:
+            print("\nNo new tickets to create.")
 
     # Build summary for non-python files too
     all_files = files

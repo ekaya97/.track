@@ -281,6 +281,14 @@ def cmd_claim(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
     post_to_board(agent, tid, "claimed", f"Claiming {tid}: {meta.get('title')}")
+
+    # Capture pre-analysis snapshot for verification
+    try:
+        from agent_track.analysis.verify import capture_pre_analysis
+        capture_pre_analysis(tid)
+    except Exception:
+        pass  # Non-critical — don't block claim
+
     print(f"Claimed {tid} for {agent}.")
 
 
@@ -354,6 +362,19 @@ def cmd_update(args: argparse.Namespace) -> None:
         if args.title:
             meta["title"] = args.title
         write_ticket(meta, body, path)
+
+    # Run verification when ticket transitions to done
+    if args.status == "done":
+        try:
+            from agent_track.analysis.verify import run_verification
+            vr = run_verification(tid)
+            if vr:
+                print(f"Verification: {vr.result}")
+                if vr.follow_up_needed:
+                    print("  Follow-up may be needed — check verification.json")
+        except Exception:
+            pass  # Non-critical
+
     print(f"Updated {tid}.")
 
 

@@ -100,6 +100,32 @@ def _log_access(
         f.write(json.dumps(entry) + "\n")
 
 
+def _check_and_inject_drift(event: dict) -> None:
+    """Run drift detection and output additionalContext if needed."""
+    from agent_track.hooks.drift import check_drift, load_config_from_file
+
+    session_id = event.get("session_id", "")
+    if not session_id:
+        return
+
+    config = load_config_from_file()
+    result = check_drift(
+        session_id=session_id,
+        tool_name=event.get("tool_name", ""),
+        tool_input=event.get("tool_input", {}),
+        config=config,
+    )
+    if result:
+        response = {
+            "additionalContext": f"Reminder from .track: {result['message']}",
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+            },
+        }
+        print(json.dumps(response), file=sys.stdout)
+
+
 def handle_pre_tool_use(event: dict) -> None:
     """Handle a PreToolUse event. Check for sensitive file access."""
     session_id = event.get("session_id", "")
@@ -120,25 +146,26 @@ def handle_pre_tool_use(event: dict) -> None:
         command = tool_input.get("command", "")
         sensitive_file = _extract_sensitive_from_bash(command)
 
-    if not sensitive_file:
-        return  # Not a sensitive file — pass through
+    if sensitive_file:
+        # Log the access
+        action = mode  # "warn" or "block"
+        _log_access(session_id, tool_name, sensitive_file, action)
 
-    # Log the access
-    action = mode  # "warn" or "block"
-    _log_access(session_id, tool_name, sensitive_file, action)
-
-    if mode == "block":
-        # Output deny decision and exit 2
-        response = {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": (
-                    f".track: Access to {sensitive_file} blocked by "
-                    f"sensitive file protection"
-                ),
+        if mode == "block":
+            # Output deny decision and exit 2
+            response = {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        f".track: Access to {sensitive_file} blocked by "
+                        f"sensitive file protection"
+                    ),
+                }
             }
-        }
-        print(json.dumps(response), file=sys.stdout)
-        sys.exit(2)
-    # warn mode — just log, exit 0 (handled by returning normally)
+            print(json.dumps(response), file=sys.stdout)
+            sys.exit(2)
+            return  # pragma: no cover
+
+    # ── Drift correction ─────────────────────────────────────────────────
+    _check_and_inject_drift(event)

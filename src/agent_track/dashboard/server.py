@@ -7,6 +7,7 @@ import http.server
 import json
 import os
 import signal
+import socketserver
 import sys
 from urllib.parse import parse_qs, urlparse
 
@@ -190,6 +191,18 @@ class TrackHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/analysis/security":
             data = _get_analysis_data("security")
             self._json(data if data else {"error": "No analysis data."})
+        elif path.startswith("/api/tickets/") and path.endswith("/verification"):
+            from agent_track.dashboard.api import get_ticket_verification
+            ticket_id = path.split("/")[3]
+            result = get_ticket_verification(ticket_id)
+            if result is None:
+                self._json({"error": "No verification data"})
+            else:
+                self._json(result)
+        elif path.startswith("/api/tickets/") and path.endswith("/injections"):
+            from agent_track.dashboard.api import get_ticket_injections
+            ticket_id = path.split("/")[3]
+            self._json(get_ticket_injections(ticket_id))
         elif path == "/api/events":
             self._sse()
         elif path.endswith(".css"):
@@ -198,6 +211,51 @@ class TrackHandler(http.server.BaseHTTPRequestHandler):
             self._static(path, "application/javascript")
         else:
             self.send_error(404)
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        # Read request body
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_length).decode("utf-8") if content_length else "{}"
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            self._json_response({"error": "Invalid JSON"}, status=400)
+            return
+
+        if path == "/api/launch":
+            from agent_track.launch import handle_launch_request
+
+            ticket_id = payload.get("ticket_id")
+            if not ticket_id:
+                self._json_response({"error": "ticket_id is required"}, status=400)
+                return
+
+            project_dir = str(paths.TRACK_DIR.parent)
+            result = handle_launch_request(
+                ticket_id=ticket_id,
+                project_dir=project_dir,
+            )
+            status = 400 if "error" in result else 200
+            self._json_response(result, status=status)
+        elif path == "/api/tickets/from-finding":
+            from agent_track.dashboard.api import create_ticket_from_finding
+
+            result = create_ticket_from_finding(payload)
+            status = 400 if "error" in result else 201
+            self._json_response(result, status=status)
+        else:
+            self.send_error(404)
+
+    def _json_response(self, obj: object, status: int = 200) -> None:
+        data = json.dumps(obj, indent=2).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _html(self, content: str) -> None:
         data = content.encode("utf-8")
@@ -289,7 +347,10 @@ def cmd_serve(args: argparse.Namespace) -> None:
         paths.SERVER_PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
 
     try:
-        server = http.server.HTTPServer(("0.0.0.0", port), TrackHandler)
+        class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+            daemon_threads = True
+
+        server = ThreadedHTTPServer(("0.0.0.0", port), TrackHandler)
     except OSError as e:
         if "Address already in use" in str(e):
             print(f"Error: Port {port} is already in use.", file=sys.stderr)

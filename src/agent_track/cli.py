@@ -160,6 +160,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--watch", action="store_true", help="Re-run on file changes"
     )
     p.add_argument(
+        "--create-tickets",
+        action="store_true",
+        help="Create tickets from analysis findings",
+    )
+    p.add_argument(
+        "--type",
+        choices=["duplicates", "coverage", "security"],
+        help="Only create tickets for this finding type (use with --create-tickets)",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview tickets without creating them (use with --create-tickets)",
+    )
+    p.add_argument(
         "--format",
         choices=["json", "text"],
         default="text",
