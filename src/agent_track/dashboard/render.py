@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html as html_mod
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from agent_track.services.models import (
     parse_board_entries,
     read_ticket,
 )
+from agent_track.dashboard.helpers import read_jsonl
 
 _STATIC_DIR = Path(__file__).parent
 _FAVICON_SVG = (
@@ -38,6 +40,27 @@ def _load_js() -> str:
     if _js_cache is None:
         _js_cache = (_STATIC_DIR / "script.js").read_text(encoding="utf-8")
     return _js_cache
+
+
+def _get_agent_todos(agent_id: str) -> list[dict]:
+    """Find the latest todo list for an agent by scanning their session activity."""
+    if not paths.AGENTS_DIR.exists():
+        return []
+    # Find session(s) for this agent
+    for f in paths.AGENTS_DIR.glob("*.json"):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            if data.get("id") == agent_id:
+                sid = data.get("session_id", f.stem)
+                activity_file = paths.SESSIONS_DIR / sid / "activity.jsonl"
+                entries = read_jsonl(activity_file)
+                # Walk backwards for the latest TodoWrite
+                for entry in reversed(entries):
+                    if entry.get("tool") == "TodoWrite" and "todos" in entry:
+                        return entry["todos"]
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
 
 
 # ── HTML Helpers ───────────────────────────────────────────────────────────────
@@ -316,6 +339,33 @@ def render_ticket_detail(ticket_id: str) -> str:
         f'<div class="meta-key">Depends on</div><div class="meta-val">{deps_val}</div>'
     )
 
+    # ── Agent Todos ─────────────────────────────────────────────────────────
+    todos_html = ""
+    claimed_by = meta.get("claimed_by")
+    if claimed_by:
+        todos = _get_agent_todos(claimed_by)
+        if todos:
+            todos_html = (
+                '<div class="panel" style="margin-top:16px">'
+                '<div class="panel-header">'
+                '<span class="panel-title">Agent Todos</span>'
+                f'<span class="panel-count">{_h(claimed_by)}</span></div>'
+            )
+            for t in todos:
+                status_icon = {
+                    "completed": "&#10003;",
+                    "in_progress": "&#9654;",
+                    "pending": "&#9675;",
+                }.get(t.get("status", ""), "&#9675;")
+                status_cls = t.get("status", "pending").replace("_", "-")
+                todos_html += (
+                    f'<div class="todo-item todo-{_h(status_cls)}">'
+                    f'<span class="todo-icon">{status_icon}</span>'
+                    f'<span class="todo-content">{_h(t.get("content", ""))}</span>'
+                    f'</div>'
+                )
+            todos_html += "</div>"
+
     status_badge_cls = (
         "active"
         if status in ("claimed", "in-progress")
@@ -335,5 +385,6 @@ def render_ticket_detail(ticket_id: str) -> str:
         f"{_priority_badge(priority)}"
         f'<span class="badge badge-status-{status_badge_cls}">{_h(status)}</span></div></div>'
         f'<div class="meta-grid">{meta_rows}</div>'
+        f'{todos_html}'
         f'<div class="body-content">{_h(body)}</div></div>',
     )

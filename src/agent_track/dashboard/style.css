@@ -139,3 +139,11 @@ a:hover { opacity: 0.7; }
 .meta-key { font-size: 12px; font-weight: 500; color: var(--text-muted); padding: 8px 12px; border-bottom: 1px solid var(--divider); background: var(--surface); }
 .meta-val { font-size: 13px; color: var(--text); padding: 8px 12px; border-bottom: 1px solid var(--divider); font-family: var(--font-mono); }
 .body-content { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; font-size: 13px; line-height: 1.6; white-space: pre-wrap; font-family: var(--font-mono); color: var(--text); }
+.todo-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--divider); font-size: 13px; font-family: var(--font-mono); }
+.todo-item:last-child { border-bottom: none; }
+.todo-icon { font-size: 14px; width: 18px; text-align: center; flex-shrink: 0; }
+.todo-content { color: var(--text); }
+.todo-completed .todo-content { text-decoration: line-through; color: var(--text-muted); }
+.todo-completed .todo-icon { color: var(--success); }
+.todo-in-progress .todo-icon { color: var(--accent); }
+.todo-pending .todo-icon { color: var(--text-muted); }

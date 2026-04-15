@@ -17,19 +17,7 @@ from agent_track.services.models import all_agents, all_tickets, parse_board_ent
 
 # ── Data helpers for hook-captured state ─────────────────────────────────────
 
-
-def _read_jsonl(file_path) -> list[dict]:
-    """Read a JSONL file, returning a list of parsed entries."""
-    if not file_path.exists():
-        return []
-    entries = []
-    for line in file_path.read_text(encoding="utf-8").strip().split("\n"):
-        if line.strip():
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
-    return entries
+from agent_track.dashboard.helpers import read_jsonl as _read_jsonl
 
 
 def _get_sessions() -> list[dict]:
