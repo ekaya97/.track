@@ -28,6 +28,7 @@ from agent_track.services.commands import (
     cmd_stale,
     cmd_update,
 )
+from agent_track.analysis.graph import cmd_analyze
 from agent_track.dashboard import cmd_serve, cmd_stop
 from agent_track.hooks.router import (
     cmd_hook_post_tool_use,
@@ -140,6 +141,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("stop", help="Stop the dashboard web server")
 
+    p = sub.add_parser("analyze", help="Analyze codebase and build code graph")
+    p.add_argument(
+        "--graph-only", action="store_true", help="Only build the code graph"
+    )
+    p.add_argument(
+        "--duplicates-only", action="store_true", help="Only run deduplication"
+    )
+    p.add_argument(
+        "--coverage-only", action="store_true", help="Only run test coverage mapping"
+    )
+    p.add_argument(
+        "--security-only", action="store_true", help="Only run security scan"
+    )
+    p.add_argument(
+        "--watch", action="store_true", help="Re-run on file changes"
+    )
+    p.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="text",
+        help="Output format (default: text)",
+    )
+
     # ── hook subcommand group ─────────────────────────────────────────────────
     hook_parser = sub.add_parser("hook", help="Handle Claude Code hook events")
     hook_sub = hook_parser.add_subparsers(dest="hook_command")
@@ -175,6 +199,7 @@ def main() -> None:
         "stale": cmd_stale,
         "serve": cmd_serve,
         "stop": cmd_stop,
+        "analyze": cmd_analyze,
     }
     if args.command == "hook":
         hook_commands = {

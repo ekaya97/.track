@@ -14,6 +14,8 @@ ARCHIVE_DIR: Path = TRACK_DIR / "archive"
 BOARD_FILE: Path = TRACK_DIR / "BOARD.md"
 CONVENTIONS_FILE: Path = TRACK_DIR / "CONVENTIONS.md"
 CONFIG_FILE: Path = TRACK_DIR / "config.json"
+GRAPH_DIR: Path = TRACK_DIR / "graph"
+ANALYSIS_DIR: Path = TRACK_DIR / "analysis"
 
 # ── Ephemeral paths (per-machine, never committed) ───────────────────────────
 
@@ -155,6 +157,7 @@ def _set_paths(track_dir: Path) -> None:
     """Set all module-level path variables from a given .track/ root."""
     global TRACK_DIR, TICKETS_DIR, ARCHIVE_DIR
     global BOARD_FILE, CONVENTIONS_FILE, CONFIG_FILE
+    global GRAPH_DIR, ANALYSIS_DIR
     global HOME_DIR, PROJECT_HOME
     global AGENTS_DIR, SESSIONS_DIR, SECURITY_DIR
     global LOCKS_DIR, LOCKS_FILE, SERVER_PID_FILE
@@ -166,6 +169,8 @@ def _set_paths(track_dir: Path) -> None:
     BOARD_FILE = TRACK_DIR / "BOARD.md"
     CONVENTIONS_FILE = TRACK_DIR / "CONVENTIONS.md"
     CONFIG_FILE = TRACK_DIR / "config.json"
+    GRAPH_DIR = TRACK_DIR / "graph"
+    ANALYSIS_DIR = TRACK_DIR / "analysis"
 
     # Ephemeral (per-machine, in ~/.track/projects/{key}/)
     PROJECT_HOME = _resolve_project_home(track_dir)
