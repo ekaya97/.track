@@ -22,22 +22,30 @@ from agent_track.services.models import (
 
 @pytest.fixture(autouse=True)
 def track_env(tmp_path, monkeypatch):
-    """Set up a temporary .track/ directory for every test."""
+    """Set up temporary project-local and ephemeral directories for every test."""
     track_dir = tmp_path / ".track"
+    home_dir = tmp_path / ".track-home"
     monkeypatch.setattr(paths, "TRACK_DIR", track_dir)
     monkeypatch.setattr(paths, "TICKETS_DIR", track_dir / "tickets")
-    monkeypatch.setattr(paths, "AGENTS_DIR", track_dir / "agents")
-    monkeypatch.setattr(paths, "LOCKS_DIR", track_dir / "locks")
     monkeypatch.setattr(paths, "ARCHIVE_DIR", track_dir / "archive")
     monkeypatch.setattr(paths, "BOARD_FILE", track_dir / "BOARD.md")
     monkeypatch.setattr(paths, "CONVENTIONS_FILE", track_dir / "CONVENTIONS.md")
-    monkeypatch.setattr(paths, "SERVER_PID_FILE", track_dir / "locks" / "server.pid")
+    monkeypatch.setattr(paths, "CONFIG_FILE", track_dir / "config.json")
+    # Ephemeral paths
+    monkeypatch.setattr(paths, "AGENTS_DIR", home_dir / "agents")
+    monkeypatch.setattr(paths, "SESSIONS_DIR", home_dir / "sessions")
+    monkeypatch.setattr(paths, "SECURITY_DIR", home_dir / "security")
+    monkeypatch.setattr(paths, "LOCKS_DIR", home_dir / "locks")
+    monkeypatch.setattr(paths, "LOCKS_FILE", home_dir / "locks.json")
+    monkeypatch.setattr(paths, "SERVER_PID_FILE", home_dir / "locks" / "server.pid")
     for d in [
         track_dir,
         track_dir / "tickets",
-        track_dir / "agents",
-        track_dir / "locks",
         track_dir / "archive",
+        home_dir / "agents",
+        home_dir / "sessions",
+        home_dir / "security",
+        home_dir / "locks",
     ]:
         d.mkdir(parents=True, exist_ok=True)
     return track_dir

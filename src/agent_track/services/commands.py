@@ -31,23 +31,56 @@ def _load_conventions() -> str:
     return (_DATA_DIR / "CONVENTIONS.md").read_text(encoding="utf-8")
 
 
+_DEFAULT_HOOKS = {
+    "hooks": {
+        "SessionStart": [
+            {"matcher": "startup|resume", "command": "track hook session-start"}
+        ],
+        "PreToolUse": [
+            {"matcher": "Write|Edit|Read|Bash", "command": "track hook pre-tool-use"}
+        ],
+        "PostToolUse": [{"command": "track hook post-tool-use"}],
+        "PostToolUseFailure": [{"command": "track hook post-tool-use"}],
+        "SessionEnd": [{"command": "track hook session-end"}],
+    }
+}
+
+_DEFAULT_CONFIG = {
+    "sensitive_mode": "warn",
+    "conflict_window_minutes": 5,
+}
+
+
 def cmd_init(_args: argparse.Namespace) -> None:
+    # Project-local directories (git-tracked)
+    for d in [paths.TRACK_DIR, paths.TICKETS_DIR, paths.ARCHIVE_DIR]:
+        d.mkdir(parents=True, exist_ok=True)
+    # Ephemeral directories (in ~/.track/projects/{key}/)
     for d in [
-        paths.TRACK_DIR,
-        paths.TICKETS_DIR,
+        paths.PROJECT_HOME,
         paths.AGENTS_DIR,
+        paths.SESSIONS_DIR,
+        paths.SECURITY_DIR,
         paths.LOCKS_DIR,
-        paths.ARCHIVE_DIR,
     ]:
         d.mkdir(parents=True, exist_ok=True)
-    gi = paths.TRACK_DIR / ".gitignore"
-    if not gi.exists():
-        gi.write_text("locks/\n", encoding="utf-8")
     if not paths.BOARD_FILE.exists():
         paths.BOARD_FILE.write_text(BOARD_HEADER, encoding="utf-8")
     if not paths.CONVENTIONS_FILE.exists():
         paths.CONVENTIONS_FILE.write_text(_load_conventions(), encoding="utf-8")
+    # hooks.json — don't overwrite existing
+    hooks_file = paths.TRACK_DIR / "hooks.json"
+    if not hooks_file.exists():
+        hooks_file.write_text(
+            json.dumps(_DEFAULT_HOOKS, indent=2) + "\n", encoding="utf-8"
+        )
+    # config.json — don't overwrite existing
+    if not paths.CONFIG_FILE.exists():
+        paths.CONFIG_FILE.write_text(
+            json.dumps(_DEFAULT_CONFIG, indent=2) + "\n", encoding="utf-8"
+        )
     print("Initialized .track/ directory.")
+    print(f"Ephemeral state: {paths.PROJECT_HOME}")
     claude_md = paths.TRACK_DIR.parent / "CLAUDE.md"
     if not claude_md.exists():
         print(

@@ -29,6 +29,12 @@ from agent_track.services.commands import (
     cmd_update,
 )
 from agent_track.dashboard import cmd_serve, cmd_stop
+from agent_track.hooks.router import (
+    cmd_hook_post_tool_use,
+    cmd_hook_pre_tool_use,
+    cmd_hook_session_end,
+    cmd_hook_session_start,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -134,6 +140,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("stop", help="Stop the dashboard web server")
 
+    # ── hook subcommand group ─────────────────────────────────────────────────
+    hook_parser = sub.add_parser("hook", help="Handle Claude Code hook events")
+    hook_sub = hook_parser.add_subparsers(dest="hook_command")
+    hook_sub.add_parser("session-start", help="Handle SessionStart event")
+    hook_sub.add_parser("post-tool-use", help="Handle PostToolUse event")
+    hook_sub.add_parser("pre-tool-use", help="Handle PreToolUse event")
+    hook_sub.add_parser("session-end", help="Handle SessionEnd event")
+
     return parser
 
 
@@ -162,6 +176,20 @@ def main() -> None:
         "serve": cmd_serve,
         "stop": cmd_stop,
     }
+    if args.command == "hook":
+        hook_commands = {
+            "session-start": cmd_hook_session_start,
+            "post-tool-use": cmd_hook_post_tool_use,
+            "pre-tool-use": cmd_hook_pre_tool_use,
+            "session-end": cmd_hook_session_end,
+        }
+        hook_fn = hook_commands.get(args.hook_command)
+        if hook_fn:
+            hook_fn(args)
+        else:
+            parser.parse_args(["hook", "--help"])
+        return
+
     fn = commands.get(args.command)
     if fn:
         fn(args)

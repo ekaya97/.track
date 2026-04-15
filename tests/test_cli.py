@@ -12,9 +12,10 @@ import pytest
 
 @pytest.fixture
 def track_dir(tmp_path):
-    """Provide a temp directory with TRACK_DIR set."""
+    """Provide a temp directory with TRACK_DIR and TRACK_HOME set."""
     env = os.environ.copy()
     env["TRACK_DIR"] = str(tmp_path / ".track")
+    env["TRACK_HOME"] = str(tmp_path / ".track-home")
     return tmp_path, env
 
 
@@ -44,9 +45,10 @@ class TestCLISmoke:
         assert "Initialized" in result.stdout
         track = tmp_path / ".track"
         assert (track / "tickets").is_dir()
-        assert (track / "agents").is_dir()
         assert (track / "BOARD.md").exists()
         assert (track / "CONVENTIONS.md").exists()
+        # Agents dir is in ephemeral home
+        assert "Ephemeral state:" in result.stdout
 
     def test_create_and_list(self, track_dir):
         tmp_path, env = track_dir

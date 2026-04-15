@@ -15,6 +15,62 @@ from agent_track.dashboard.render import render_dashboard, render_ticket_detail
 from agent_track.services.models import all_agents, all_tickets, parse_board_entries
 
 
+# ── Data helpers for hook-captured state ─────────────────────────────────────
+
+
+def _read_jsonl(file_path) -> list[dict]:
+    """Read a JSONL file, returning a list of parsed entries."""
+    if not file_path.exists():
+        return []
+    entries = []
+    for line in file_path.read_text(encoding="utf-8").strip().split("\n"):
+        if line.strip():
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    return entries
+
+
+def _get_sessions() -> list[dict]:
+    """List all agent sessions (from ephemeral agents dir)."""
+    results = []
+    if not paths.AGENTS_DIR.exists():
+        return results
+    for f in sorted(paths.AGENTS_DIR.glob("*.json")):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            results.append({
+                "session_id": data.get("session_id", f.stem),
+                "agent_id": data.get("id"),
+                "status": data.get("status"),
+                "model": data.get("model"),
+                "registered_at": data.get("registered_at"),
+                "last_heartbeat": data.get("last_heartbeat"),
+                "current_ticket": data.get("current_ticket"),
+            })
+        except (json.JSONDecodeError, OSError):
+            pass
+    return results
+
+
+def _get_session_activity(session_id: str, limit: int = 50) -> list[dict]:
+    """Read activity log for a specific session."""
+    activity_file = paths.SESSIONS_DIR / session_id / "activity.jsonl"
+    entries = _read_jsonl(activity_file)
+    return entries[:limit]
+
+
+def _get_conflicts(limit: int = 50) -> list[dict]:
+    """Read conflict log."""
+    return _read_jsonl(paths.SECURITY_DIR / "conflicts.jsonl")[:limit]
+
+
+def _get_security_alerts(limit: int = 50) -> list[dict]:
+    """Read security access log."""
+    return _read_jsonl(paths.SECURITY_DIR / "access-log.jsonl")[:limit]
+
+
 class TrackHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -40,6 +96,15 @@ class TrackHandler(http.server.BaseHTTPRequestHandler):
                         {"agent": a["id"], "ticket": f.get("ticket", "?")}
                     )
             self._json(fm)
+        elif path == "/api/sessions":
+            self._json(_get_sessions())
+        elif path.startswith("/api/sessions/") and path.endswith("/activity"):
+            sid = path.split("/")[3]
+            self._json(_get_session_activity(sid))
+        elif path == "/api/conflicts":
+            self._json(_get_conflicts())
+        elif path == "/api/security/alerts":
+            self._json(_get_security_alerts())
         else:
             self.send_error(404)
 
