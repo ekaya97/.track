@@ -49,9 +49,11 @@ def _extract_imports_and_calls(source: str) -> tuple[set[str], set[str]]:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 imports.add(alias.name.split(".")[0])
+                imports.add(alias.name)  # full dotted path
         elif isinstance(node, ast.ImportFrom):
             if node.module:
                 imports.add(node.module.split(".")[0])
+                imports.add(node.module)  # full dotted path
             for alias in node.names:
                 calls.add(alias.name)  # imported names are potential calls
         elif isinstance(node, ast.Call):
@@ -100,10 +102,18 @@ def analyze_coverage(files: list[tuple[str, str]]) -> dict:
 
     # Parse source files for functions
     source_functions: dict[str, list[dict]] = {}  # file → [{name, line_start, line_end}]
-    source_module_names: dict[str, str] = {}  # module_stem → file_path
+    source_module_names: dict[str, str] = {}  # module_name → file_path
     for path, source in source_files:
-        stem = PurePosixPath(path).stem
+        p = PurePosixPath(path)
+        stem = p.stem
         source_module_names[stem] = path
+        # Register full dotted path: src/agent_track/cli.py → agent_track.cli
+        dotted = str(p.with_suffix("")).replace("/", ".")
+        source_module_names[dotted] = path
+        # Also without common prefix: src.agent_track.cli → agent_track.cli
+        for prefix in ("src.",):
+            if dotted.startswith(prefix):
+                source_module_names[dotted[len(prefix):]] = path
         try:
             tree = ast.parse(source)
         except SyntaxError:

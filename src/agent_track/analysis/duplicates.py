@@ -10,7 +10,16 @@ from datetime import datetime, timezone
 
 
 # ── Minimum function size (lines) to consider ────────────────────────────────
-MIN_LINES = 3
+MIN_LINES = 5
+
+# ── Near-duplicate similarity threshold ───────────────────────────────────────
+NEAR_THRESHOLD = 0.85
+
+# ── Paths to skip (test files produce noisy near-duplicates) ──────────────────
+import re
+_TEST_PATH_RE = re.compile(
+    r"(^|/)(test_|tests/|__tests__/)|(_test|\.test|\.spec)\.[^/]+$"
+)
 
 
 # ── AST normalization ────────────────────────────────────────────────────────
@@ -152,9 +161,15 @@ class _FuncInfo:
 
 
 def _extract_functions(files: list[tuple[str, str]]) -> list[_FuncInfo]:
-    """Extract and normalize all non-trivial functions from source files."""
+    """Extract and normalize all non-trivial functions from source files.
+
+    Skips test files to reduce noise — test functions tend to have similar
+    structure (setup, assert) that produces many false near-duplicates.
+    """
     funcs: list[_FuncInfo] = []
     for file_path, source in files:
+        if _TEST_PATH_RE.search(file_path):
+            continue
         try:
             tree = ast.parse(source, filename=file_path)
         except SyntaxError:
@@ -251,7 +266,7 @@ def find_duplicates(files: list[tuple[str, str]]) -> dict:
             seen_pairs.add(pair_key)
 
             sim = _similarity(a.tokens, b.tokens)
-            if sim > 0.8:
+            if sim > NEAR_THRESHOLD:
                 clusters.append(
                     {
                         "hash": None,

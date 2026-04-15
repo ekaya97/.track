@@ -90,8 +90,16 @@ def scan_security(files: list[tuple[str, str]]) -> dict:
     files_scanned = 0
 
     for file_path, source in files:
-        # Skip test files for secret detection
-        is_test = _is_test_file(file_path)
+        # Skip test files entirely — test data contains intentional patterns
+        if _is_test_file(file_path):
+            files_scanned += 1
+            continue
+
+        # Skip the security scanner itself — it contains pattern strings
+        if "analysis/security" in file_path:
+            files_scanned += 1
+            continue
+
         files_scanned += 1
 
         for line_num, line in enumerate(source.splitlines(), 1):
@@ -101,11 +109,13 @@ def scan_security(files: list[tuple[str, str]]) -> dict:
             if stripped.startswith("#") or stripped.startswith("//"):
                 continue
 
-            # ── Hardcoded secrets (skip in test files) ────────────────
-            if not is_test:
-                _check_secrets(file_path, line_num, line, findings)
+            # Skip lines that are string-only (docstrings, data definitions)
+            if stripped.startswith(('"""', "'''", '"', "'")):
+                # Allow assignment lines like: KEY = "AKIA..."
+                if "=" not in line.split("#")[0].split("//")[0]:
+                    continue
 
-            # ── Dangerous patterns (check everywhere) ─────────────────
+            _check_secrets(file_path, line_num, line, findings)
             _check_dangerous(file_path, line_num, line, stripped, findings)
 
     # ── Stats ─────────────────────────────────────────────────────────

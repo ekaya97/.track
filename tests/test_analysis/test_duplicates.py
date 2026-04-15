@@ -16,8 +16,8 @@ class TestExactDuplicates:
     def test_exact_duplicate_detected(self):
         """Identical functions in different files are detected as exact duplicates."""
         files = _make_files(
-            ("src/auth.py", "def validate(token):\n    if not token:\n        raise ValueError('bad')\n    return True\n"),
-            ("src/api.py", "def validate(token):\n    if not token:\n        raise ValueError('bad')\n    return True\n"),
+            ("src/auth.py", "def validate(token):\n    if not token:\n        raise ValueError('bad')\n    cleaned = token.strip()\n    return len(cleaned) > 0\n"),
+            ("src/api.py", "def validate(token):\n    if not token:\n        raise ValueError('bad')\n    cleaned = token.strip()\n    return len(cleaned) > 0\n"),
         )
         result = find_duplicates(files)
         exact = [c for c in result["clusters"] if c["type"] == "exact"]
@@ -40,8 +40,8 @@ class TestExactDuplicates:
     def test_different_literals_still_match(self):
         """Functions with different literal values but same structure match."""
         files = _make_files(
-            ("src/a.py", "def greet(name):\n    msg = 'Hello ' + name\n    print(msg)\n    return 42\n"),
-            ("src/b.py", "def welcome(user):\n    text = 'Welcome ' + user\n    print(text)\n    return 99\n"),
+            ("src/a.py", "def greet(name):\n    msg = 'Hello ' + name\n    print(msg)\n    result = len(msg)\n    return result + 42\n"),
+            ("src/b.py", "def welcome(user):\n    text = 'Welcome ' + user\n    print(text)\n    result = len(text)\n    return result + 99\n"),
         )
         result = find_duplicates(files)
         exact = [c for c in result["clusters"] if c["type"] == "exact"]
@@ -50,8 +50,8 @@ class TestExactDuplicates:
     def test_different_logic_no_match(self):
         """Functions with different logic should NOT match."""
         files = _make_files(
-            ("src/a.py", "def add(x, y):\n    return x + y\n    return x + y\n"),
-            ("src/b.py", "def multiply(x, y):\n    z = x * y\n    print(z)\n    return z\n"),
+            ("src/a.py", "def add(x, y):\n    result = x + y\n    checked = result > 0\n    logged = str(checked)\n    return result + 1\n"),
+            ("src/b.py", "def multiply(x, y):\n    z = x * y\n    w = z ** 2\n    print(w)\n    return z - w\n"),
         )
         result = find_duplicates(files)
         exact = [c for c in result["clusters"] if c["type"] == "exact"]
@@ -78,15 +78,15 @@ class TestNearDuplicates:
         near = [c for c in result["clusters"] if c["type"] == "near"]
         # Should find a near duplicate (the only difference is sorted() call)
         assert len(near) >= 1
-        assert near[0]["similarity"] > 0.8
+        assert near[0]["similarity"] > 0.85
 
 
 class TestFiltering:
     def test_trivial_functions_skipped(self):
-        """Functions with < 3 lines should be skipped."""
+        """Functions with < 5 lines should be skipped."""
         files = _make_files(
-            ("src/a.py", "def tiny():\n    pass\n"),
-            ("src/b.py", "def tiny():\n    pass\n"),
+            ("src/a.py", "def tiny(x):\n    y = x + 1\n    return y\n"),
+            ("src/b.py", "def tiny(x):\n    y = x + 1\n    return y\n"),
         )
         result = find_duplicates(files)
         # Trivial functions should not appear in clusters
@@ -133,7 +133,7 @@ class TestOutput:
         files = _make_files(
             ("src/a.py", "def check(x):\n    y = x + 1\n    if y > 10:\n        return True\n    return False\n"),
             ("src/b.py", "def verify(val):\n    result = val + 1\n    if result > 10:\n        return True\n    return False\n"),
-            ("src/c.py", "def unrelated(z):\n    for i in range(z):\n        print(i)\n    return z\n"),
+            ("src/c.py", "def unrelated(z):\n    for i in range(z):\n        print(i)\n    total = z * 2\n    return total\n"),
         )
         result = find_duplicates(files)
         stats = result["stats"]
