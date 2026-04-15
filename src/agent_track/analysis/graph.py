@@ -158,6 +158,39 @@ def run_analysis(
     (gd / "symbol-graph.json").write_text(json.dumps(symbol_graph, indent=2))
 
 
+def _run_analysis_modules(
+    files: list[Path], project_root: Path, analysis_dir: Path
+) -> None:
+    """Run duplicates, coverage, and security analysis, writing JSON output."""
+    from agent_track.analysis.duplicates import find_duplicates
+    from agent_track.analysis.coverage import analyze_coverage
+    from agent_track.analysis.security import scan_security
+
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build (file_path, source) tuples for all code files
+    file_sources: list[tuple[str, str]] = []
+    for f in files:
+        try:
+            rel = str(f.relative_to(project_root))
+            source = f.read_text(errors="replace")
+            file_sources.append((rel, source))
+        except OSError:
+            pass
+
+    # Duplicates
+    dup_result = find_duplicates(file_sources)
+    (analysis_dir / "duplicates.json").write_text(json.dumps(dup_result, indent=2))
+
+    # Coverage
+    cov_result = analyze_coverage(file_sources)
+    (analysis_dir / "test-coverage.json").write_text(json.dumps(cov_result, indent=2))
+
+    # Security
+    sec_result = scan_security(file_sources)
+    (analysis_dir / "security.json").write_text(json.dumps(sec_result, indent=2))
+
+
 # ── CLI command ───────────────────────────────────────────────────────────────
 
 
@@ -182,6 +215,9 @@ def cmd_analyze(args: argparse.Namespace) -> None:
 
     # Write graph files
     run_analysis(results, str(project_root), graph_dir=paths.GRAPH_DIR)
+
+    # Run analysis modules and write JSON
+    _run_analysis_modules(files, project_root, paths.ANALYSIS_DIR)
 
     # Build summary for non-python files too
     all_files = files

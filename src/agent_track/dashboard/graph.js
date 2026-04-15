@@ -155,13 +155,7 @@
       .selectAll("g")
       .data(nodes)
       .join("g")
-      .attr("class", (d) => {
-        let cls = "node";
-        if (duplicateFiles.has(d.id)) cls += " duplicate";
-        if (untestedFiles.has(d.id)) cls += " untested";
-        if (securityFiles.has(d.id)) cls += " security-finding";
-        return cls;
-      })
+      .attr("class", "node")
       .call(drag(simulation));
 
     // Agent halo
