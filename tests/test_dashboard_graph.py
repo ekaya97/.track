@@ -59,7 +59,7 @@ def _write_graph_files(track_dir: Path):
              "directory": "src", "symbols": [{"name": "helper", "type": "function",
              "line_start": 1, "line_end": 2, "hash": "def456"}], "lines": 5},
         ],
-        "edges": [{"source": "src/app.py", "target_module": "utils", "type": "import"}],
+        "edges": [{"source": "src/app.py", "target": "src/utils.py", "type": "import"}],
     }
     symbol_graph = dict(file_graph)
     symbol_graph["edges"] = file_graph["edges"] + [

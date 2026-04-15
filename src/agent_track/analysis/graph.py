@@ -27,6 +27,31 @@ def assemble_file_graph(
     lang_counts: dict[str, int] = {}
     total_symbols = 0
 
+    # Build module-to-file lookup for resolving import targets
+    file_paths = {pr.file_path for pr in results}
+    module_to_file: dict[str, str] = {}
+    for fp in file_paths:
+        p = Path(fp)
+        stem = str(p.with_suffix(""))
+        dotted = stem.replace("/", ".")
+        module_to_file[dotted] = fp
+        module_to_file[p.stem] = fp
+        # Also register __init__.py as the package name
+        if p.name == "__init__.py":
+            pkg = str(p.parent).replace("/", ".")
+            module_to_file[pkg] = fp
+        # Register without common prefixes (src/, lib/) so that
+        # "agent_track.cli" matches "src/agent_track/cli.py"
+        for prefix in ("src.", "lib."):
+            if dotted.startswith(prefix):
+                short = dotted[len(prefix):]
+                module_to_file.setdefault(short, fp)
+                # Also handle __init__.py package form
+                if p.name == "__init__.py":
+                    short_pkg = str(p.parent).replace("/", ".")[len(prefix.rstrip(".")) + 1:]
+                    if short_pkg:
+                        module_to_file.setdefault(short_pkg, fp)
+
     for pr in results:
         lang_counts[pr.language] = lang_counts.get(pr.language, 0) + 1
         total_symbols += len(pr.symbols)
@@ -51,16 +76,19 @@ def assemble_file_graph(
         }
         nodes.append(node)
 
-        # Build import edges (file-level)
+        # Build import edges (file-level), resolving target_module to file path
         seen_imports: set[tuple[str, str]] = set()
         for imp in pr.imports:
-            key = (pr.file_path, imp.target_module)
+            target_file = module_to_file.get(imp.target_module)
+            if not target_file or target_file == pr.file_path:
+                continue  # skip stdlib/external imports and self-imports
+            key = (pr.file_path, target_file)
             if key not in seen_imports:
                 seen_imports.add(key)
                 edges.append(
                     {
                         "source": pr.file_path,
-                        "target_module": imp.target_module,
+                        "target": target_file,
                         "type": "import",
                     }
                 )

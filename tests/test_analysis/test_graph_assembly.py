@@ -45,7 +45,7 @@ class TestGraphAssembly:
         graph = assemble_file_graph(results, "/project")
         import_edges = [e for e in graph["edges"] if e["type"] == "import"]
         assert any(
-            e["source"] == "src/app.py" and e["target_module"] == "utils"
+            e["source"] == "src/app.py" and e["target"] == "src/utils.py"
             for e in import_edges
         )
 

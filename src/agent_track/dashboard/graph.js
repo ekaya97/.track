@@ -92,17 +92,8 @@
       let sourceId, targetId;
       if (e.type === "import") {
         sourceId = e.source;
-        // Try to find the target file by module name
-        targetId = null;
-        for (const n of nodes) {
-          const stem = n.id.replace(/\.[^.]+$/, "").replace(/\//g, ".");
-          const shortStem = n.id.split("/").pop().replace(/\.[^.]+$/, "");
-          if (stem === e.target_module || shortStem === e.target_module) {
-            targetId = n.id;
-            break;
-          }
-        }
-        if (!targetId || !nodeIndex.has(sourceId)) continue;
+        targetId = e.target;
+        if (!targetId || !nodeIndex.has(sourceId) || !nodeIndex.has(targetId)) continue;
       } else if (e.type === "call") {
         sourceId = e.source.split("::")[0];
         targetId = e.target.split("::")[0];
