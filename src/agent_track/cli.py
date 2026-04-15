@@ -51,11 +51,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("create", help="Create a new ticket")
     p.add_argument("--title", "-t", required=True, help="Ticket title")
+    p.add_argument("--desc", "-d", default="", help="Description (text or file ref like docs/plan.md:45-72)")
+    p.add_argument("--no-claim", action="store_true", help="Don't auto-claim (leave in backlog for others)")
     p.add_argument("--priority", "-p", choices=PRIORITIES, default="medium")
     p.add_argument("--labels", "-l", default="", help="Comma-separated labels")
     p.add_argument("--depends-on", default="", help="Comma-separated ticket IDs")
-    p.add_argument("--body", "-b", default="", help="Description body")
-    p.add_argument("--by", default="human", help="Creator ID")
+    p.add_argument("--body", "-b", default="", help="Description body (legacy, use --desc)")
+    p.add_argument("--by", default="", help="Creator ID (auto-detected from session)")
 
     p = sub.add_parser("list", help="List tickets")
     p.add_argument("--status", "-s", choices=STATUSES)
@@ -69,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("claim", help="Claim a ticket")
     p.add_argument("ticket_id", help="Ticket ID")
-    p.add_argument("--agent", required=True, help="Agent ID")
+    p.add_argument("--agent", default="", help="Agent ID (auto-detected from session)")
     p.add_argument("--force", action="store_true", help="Override existing claim")
 
     p = sub.add_parser("update", help="Update ticket metadata")

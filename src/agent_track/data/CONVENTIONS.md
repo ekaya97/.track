@@ -1,92 +1,49 @@
 # .track/ Agent Conventions
 
+## How It Works
+
+Your session is **automatically tracked** via hooks. No registration, heartbeats, or deregistration needed.
+
 ## Quick Start
 
-1. **Register:**
-   ```bash
-   track register --agent {your-id} --capabilities python,ui
-   ```
+```bash
+track board --last 10                          # Check what's happening
+track list                                     # See available tickets
+track create --title "Fix auth bug"            # Create + auto-claim
+track create --title "Refactor utils" --no-claim  # Create for others
+```
 
-2. **Check available work:**
-   ```bash
-   track list --status backlog
-   ```
+## While Working
 
-3. **Read the board for context:**
-   ```bash
-   track board --last 10
-   ```
+- **Reference ticket IDs in commits:** `T-0001: fix token refresh`
+- **Check the board:** `track board --last 10`
+- **Post to the board:** `track board -m "message" --ticket T-NNNN`
 
-4. **Claim a ticket:**
-   ```bash
-   track claim T-NNNN --agent {your-id}
-   ```
+Everything else is automatic — file changes, conflicts, heartbeats.
 
-5. **Start work:**
-   ```bash
-   track update T-NNNN --status in-progress --agent {your-id}
-   ```
+## When Done
 
-6. **Log progress:**
-   ```bash
-   track log T-NNNN --agent {your-id} -m "Description of progress"
-   ```
-
-7. **Track files you modify:**
-   ```bash
-   track files --add path/to/file.py --agent {your-id} --ticket T-NNNN
-   ```
-
-8. **Post to the board:**
-   ```bash
-   track board --agent {your-id} --ticket T-NNNN -m "Message"
-   ```
-
-9. **When done:**
-   ```bash
-   track update T-NNNN --status review --agent {your-id}
-   ```
-
-10. **Deregister on exit:**
-    ```bash
-    track deregister --agent {your-id} --release-tickets
-    ```
+```bash
+track update T-NNNN --status review
+```
 
 ## Rules
 
-1. **One ticket per agent.** Do not claim multiple tickets simultaneously.
-2. **Check the board before claiming.** Another agent may be about to claim the same ticket.
-3. **Check file ownership.** Run `track files --check path/to/file.py` before modifying a file another agent is working on.
-4. **Heartbeat.** Call `track heartbeat --agent {your-id}` periodically. Agents without heartbeat for 30 minutes are marked stale.
-5. **Deregister on exit.** Always deregister, releasing tickets if work is incomplete.
-6. **Communicate via board.** Do not modify another agent's ticket work log. Post on the board with the ticket ID instead.
-7. **Small commits.** Reference the ticket ID in commit messages: `T-0001: move schema validation`
+1. **One ticket at a time.** Finish or release before claiming another.
+2. **Check the board first.** Another agent may be working on related code.
+3. **Reference ticket IDs in commits** so progress is trackable.
+4. **Never modify `.track/` files directly.** Use the `track` CLI.
 
 ## Dashboard
 
 ```bash
-track serve              # Start dashboard at http://localhost:7777
-track serve -d           # Start in background (daemonize)
-track stop               # Stop background dashboard
+track serve              # Start at http://localhost:7777
+track serve -d           # Background mode
+track stop               # Stop
 ```
 
 ## Ticket Lifecycle
 
 ```
-backlog -> claimed -> in-progress -> review -> done -> archive
+backlog → claimed → in-progress → review → done
 ```
-
-## Board Tags
-
-| Tag | Usage |
-|-----|-------|
-| `created` | Ticket was created |
-| `claimed` | Agent claimed a ticket |
-| `status:{s}` | Status changed |
-| `registered` | Agent joined |
-| `deregistered` | Agent left |
-| `note` | General comment |
-| `blocked` | Agent is blocked |
-| `question` | Agent asks a question |
-| `answer` | Response to a question |
-| `conflict` | File ownership conflict |

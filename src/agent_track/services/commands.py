@@ -227,6 +227,13 @@ def cmd_show(args: argparse.Namespace) -> None:
 def cmd_claim(args: argparse.Namespace) -> None:
     tid = args.ticket_id
     agent = args.agent
+    if not agent:
+        agent_data = _detect_current_agent()
+        if agent_data:
+            agent = agent_data["id"]
+        else:
+            print("Error: --agent required (no active session detected).", file=sys.stderr)
+            sys.exit(1)
     try:
         with file_lock(f"{tid}.lock", blocking=False):
             meta, body, path = read_ticket(tid)
@@ -279,6 +286,13 @@ def cmd_claim(args: argparse.Namespace) -> None:
 
 def cmd_update(args: argparse.Namespace) -> None:
     tid = args.ticket_id
+    # Auto-detect agent if not provided
+    agent_id = args.agent
+    if not agent_id:
+        agent_data = _detect_current_agent()
+        if agent_data:
+            agent_id = agent_data["id"]
+
     with file_lock(f"{tid}.lock"):
         meta, body, path = read_ticket(tid)
         if args.status:
@@ -303,8 +317,8 @@ def cmd_update(args: argparse.Namespace) -> None:
             if new_status == "backlog":
                 meta["claimed_by"] = None
                 meta["claimed_at"] = None
-            if new_status == "done" and args.agent:
-                adata = find_agent(args.agent)
+            if new_status == "done" and agent_id:
+                adata = find_agent(agent_id)
                 if adata:
                     if adata.get("current_ticket") == tid:
                         adata["current_ticket"] = None
@@ -316,13 +330,13 @@ def cmd_update(args: argparse.Namespace) -> None:
                         }
                     )
                     write_agent(adata)
-            if args.agent:
-                post_to_board(
-                    args.agent,
-                    tid,
-                    f"status:{new_status}",
-                    f"Updated {tid} to {new_status}",
-                )
+            poster = agent_id or meta.get("claimed_by") or "unknown"
+            post_to_board(
+                poster,
+                tid,
+                f"status:{new_status}",
+                f"Updated {tid} to {new_status}",
+            )
         if args.priority:
             meta["priority"] = args.priority
         if args.branch:
@@ -376,12 +390,13 @@ def cmd_board(args: argparse.Namespace) -> None:
     if not args.message:
         print("Error: -m/--message is required.", file=sys.stderr)
         sys.exit(1)
-    if not args.agent:
-        print("Error: --agent is required.", file=sys.stderr)
-        sys.exit(1)
+    agent_id = args.agent
+    if not agent_id:
+        agent_data = _detect_current_agent()
+        agent_id = agent_data["id"] if agent_data else "unknown"
     ticket = args.ticket or "system"
     tag = args.tag or "note"
-    post_to_board(args.agent, ticket, tag, args.message)
+    post_to_board(agent_id, ticket, tag, args.message)
     print("Posted to board.")
 
 

@@ -1,81 +1,59 @@
 # CLAUDE.md — agent-track integration
 
-<!-- Copy the relevant sections below into your project's CLAUDE.md -->
+<!-- Copy the section below into your project's CLAUDE.md -->
 
 ## Agent Protocol
 
-This project uses `track` for multi-agent coordination. All task state lives in `.track/`.
+This project uses `.track` for multi-agent coordination. Your session is **automatically tracked** via hooks — no registration, heartbeats, or deregistration needed.
 
-### On session start
+### Before starting work
 
-1. Register yourself:
-   ```bash
-   track register --capabilities python,ui
-   ```
-   Note the agent ID printed (e.g. `agent-alpha`). Use it for all subsequent commands.
+Check the board and available tickets:
+```bash
+track board --last 10
+track list
+```
 
-2. Read the board for context from other agents:
-   ```bash
-   track board --last 20
-   ```
+### Creating and claiming tickets
 
-3. Check available work:
-   ```bash
-   track list --status backlog
-   ```
+Create a ticket — it's **auto-claimed** to you:
+```bash
+track create --title "Fix auth token refresh" --desc "See docs/phase2-plan.md:45-72"
+```
 
-4. Claim a ticket before starting work:
-   ```bash
-   track claim T-NNNN --agent {your-id}
-   track update T-NNNN --status in-progress --agent {your-id}
-   ```
+To create a ticket for another agent to pick up:
+```bash
+track create --title "Add retry logic" --no-claim
+```
+
+To claim an existing unclaimed ticket:
+```bash
+track claim T-NNNN
+```
 
 ### While working
 
-- **Log progress** after meaningful steps:
+- **Reference ticket IDs in git commits**: `T-0001: fix token refresh logic`
+- **Check the board** if you need context from other agents: `track board --last 10`
+- **Post to the board** for questions or blockers:
   ```bash
-  track log T-NNNN --agent {your-id} -m "what you did"
+  track board -m "Need help with auth module" --ticket T-NNNN
   ```
 
-- **Track files** you modify so other agents avoid conflicts:
-  ```bash
-  track files --add path/to/file.py --agent {your-id} --ticket T-NNNN
-  ```
+Everything else is tracked automatically:
+- File changes, test runs, commands — captured via hooks
+- File conflicts with other agents — detected automatically
+- Heartbeats — every tool call is an implicit heartbeat
 
-- **Check file ownership** before editing a file another agent might be working on:
-  ```bash
-  track files --check path/to/file.py
-  ```
-
-- **Post to the board** for questions, blockers, or notes to other agents:
-  ```bash
-  track board --agent {your-id} --ticket T-NNNN --tag note -m "message"
-  ```
-  Available tags: `note`, `blocked`, `question`, `answer`, `conflict`
-
-- **Send heartbeats** periodically (agents are marked stale after 30 minutes):
-  ```bash
-  track heartbeat --agent {your-id}
-  ```
-
-### When done with a ticket
+### When done
 
 ```bash
-track update T-NNNN --status review --agent {your-id}
-track log T-NNNN --agent {your-id} -m "Summary of changes"
-```
-
-### On session end
-
-Always deregister and release any unfinished tickets:
-```bash
-track deregister --agent {your-id} --release-tickets
+track update T-NNNN --status review
 ```
 
 ### Rules
 
 - **One ticket at a time.** Finish or release before claiming another.
 - **Check the board first.** Another agent may already be working on what you need.
-- **Don't edit another agent's files** without checking ownership first.
-- **Reference ticket IDs in commits:** `T-0001: description of change`
+- **Reference ticket IDs in commits** so progress is trackable.
 - **Never modify `.track/` files directly.** Always use the `track` CLI.
