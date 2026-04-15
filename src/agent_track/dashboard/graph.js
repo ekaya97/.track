@@ -17,6 +17,7 @@
   // ── State ────────────────────────────────────────────────────────────────
   let graphData = null;
   let analysisData = { duplicates: null, coverage: null, security: null };
+  let agentActivity = {};  // {relative_file: {agent, last_active, tool}}
   let selectedNode = null;
 
   // ── SVG setup ────────────────────────────────────────────────────────────
@@ -64,7 +65,8 @@
     fetch("/api/analysis/duplicates").then((r) => r.json()).catch(() => null),
     fetch("/api/analysis/coverage").then((r) => r.json()).catch(() => null),
     fetch("/api/analysis/security").then((r) => r.json()).catch(() => null),
-  ]).then(([graph, dupes, coverage, security]) => {
+    fetch("/api/agents/activity").then((r) => r.json()).catch(() => ({})),
+  ]).then(([graph, dupes, coverage, security, activity]) => {
     if (graph.error) {
       container.innerHTML =
         '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#666;font-family:monospace">' +
@@ -73,6 +75,7 @@
     }
     graphData = graph;
     analysisData = { duplicates: dupes, coverage, security };
+    agentActivity = activity || {};
     render();
     populateFilters();
   });
@@ -158,11 +161,21 @@
       .attr("class", "node")
       .call(drag(simulation));
 
-    // Agent halo
+    // Agent halo — active if agent touched this file recently
     node
       .append("circle")
-      .attr("class", "agent-halo")
-      .attr("r", (d) => nodeRadius(d) + 6);
+      .attr("class", (d) => {
+        const info = agentActivity[d.id];
+        if (!info) return "agent-halo";
+        // Check if active within last 60 seconds
+        const isRecent = _isRecentActivity(info.last_active, 60);
+        return isRecent ? "agent-halo active" : "agent-halo fading";
+      })
+      .attr("r", (d) => nodeRadius(d) + 6)
+      .attr("stroke", (d) => {
+        const info = agentActivity[d.id];
+        return info ? _agentColor(info.agent) : "#00ff88";
+      });
 
     // Main circle
     node
@@ -240,6 +253,26 @@
     return Math.max(4, Math.sqrt(d.lines || 1) * 1.5);
   }
 
+  // Agent color palette — consistent per agent name
+  const _agentColors = [
+    "#00ff88", "#ff6b6b", "#4ecdc4", "#ffe66d", "#a78bfa",
+    "#f97316", "#06b6d4", "#ec4899", "#84cc16", "#8b5cf6",
+  ];
+  function _agentColor(agentId) {
+    let hash = 0;
+    for (let i = 0; i < agentId.length; i++) hash = (hash * 31 + agentId.charCodeAt(i)) | 0;
+    return _agentColors[Math.abs(hash) % _agentColors.length];
+  }
+
+  function _isRecentActivity(isoStr, withinSeconds) {
+    if (!isoStr) return false;
+    try {
+      const then = new Date(isoStr.replace("Z", "+00:00")).getTime();
+      const now = Date.now();
+      return (now - then) / 1000 < withinSeconds;
+    } catch { return false; }
+  }
+
   function drag(simulation) {
     return d3
       .drag()
@@ -281,8 +314,17 @@
       if (findings.length) secInfo = `<div class="detail-row"><span class="detail-label">Security</span><span style="color:#ff4444">${findings.length} finding(s)</span></div>`;
     }
 
+    let agentInfo = "";
+    const activity = agentActivity[d.id];
+    if (activity) {
+      const color = _agentColor(activity.agent);
+      agentInfo = `<div class="detail-row"><span class="detail-label">Agent</span><span style="color:${color};font-weight:600">${activity.agent}</span></div>` +
+        `<div class="detail-row"><span class="detail-label">Last touch</span><span>${activity.tool} @ ${activity.last_active.slice(11, 19)}</span></div>`;
+    }
+
     el.innerHTML =
       `<div class="file-name">${d.id}</div>` +
+      agentInfo +
       `<div class="detail-row"><span class="detail-label">Language</span><span>${d.language}</span></div>` +
       `<div class="detail-row"><span class="detail-label">Lines</span><span>${d.lines}</span></div>` +
       `<div class="detail-row"><span class="detail-label">Functions</span><span>${funcs}</span></div>` +
@@ -355,11 +397,36 @@
     );
   });
 
+  // ── Agents overlay toggle ───────────────────────────────────────────────
+  document.getElementById("overlay-agents")?.addEventListener("change", function () {
+    if (!window._graphNodes) return;
+    window._graphNodes.selectAll(".agent-halo")
+      .classed("active", (d) => this.checked && !!agentActivity[d.id] && _isRecentActivity(agentActivity[d.id].last_active, 300))
+      .classed("fading", (d) => this.checked && !!agentActivity[d.id] && !_isRecentActivity(agentActivity[d.id].last_active, 300));
+  });
+
+  // ── Polling for agent activity updates ─────────────────────────────────
+  // Poll every 5 seconds for fresh agent activity data and update halos
+  setInterval(function () {
+    fetch("/api/agents/activity")
+      .then((r) => r.json())
+      .then((activity) => {
+        agentActivity = activity || {};
+        if (!window._graphNodes) return;
+        const agentsChecked = document.getElementById("overlay-agents")?.checked;
+        if (!agentsChecked) return;
+        // Update halo classes
+        window._graphNodes.selectAll(".agent-halo")
+          .classed("active", (d) => !!agentActivity[d.id] && _isRecentActivity(agentActivity[d.id].last_active, 300))
+          .classed("fading", (d) => !!agentActivity[d.id] && !_isRecentActivity(agentActivity[d.id].last_active, 300));
+      })
+      .catch(() => {});
+  }, 5000);
+
   // ── SSE for live updates ───────────────────────────────────────────────
   if (typeof EventSource !== "undefined") {
     const source = new EventSource("/api/events");
     source.addEventListener("graph-update", function (e) {
-      // Re-fetch graph data and re-render
       fetch("/api/graph/symbol")
         .then((r) => r.json())
         .then((graph) => {

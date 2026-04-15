@@ -229,6 +229,7 @@ def _graph_css() -> str:
 .node.security-finding circle { fill:#ff4444 !important; }
 .node .agent-halo { fill:none; stroke:#00ff88; stroke-width:2; opacity:0; }
 .node .agent-halo.active { opacity:0.8; animation:pulse 2s ease-in-out infinite; }
+.node .agent-halo.fading { opacity:0.3; stroke-dasharray:4,3; }
 
 .link { stroke-opacity:0.3; fill:none; }
 .link.import { stroke:#555; stroke-width:1; }

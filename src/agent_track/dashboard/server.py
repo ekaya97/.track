@@ -85,6 +85,56 @@ def _get_analysis_data(analysis_type: str) -> dict | None:
         return None
 
 
+def _get_agent_file_activity(project_root: str) -> dict:
+    """Map file paths to the agent most recently touching them.
+
+    Scans all active agent sessions, reads their activity.jsonl,
+    and returns {relative_file_path: {agent, last_active, tool}}.
+    Only includes active/idle agents.
+    """
+    result: dict[str, dict] = {}
+
+    if not paths.AGENTS_DIR.exists():
+        return result
+
+    for agent_file in paths.AGENTS_DIR.glob("*.json"):
+        try:
+            agent_data = json.loads(agent_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        if agent_data.get("status") not in ("active", "idle"):
+            continue
+
+        agent_id = agent_data.get("id", "?")
+        session_id = agent_data.get("session_id", agent_file.stem)
+        activity_file = paths.SESSIONS_DIR / session_id / "activity.jsonl"
+        entries = _read_jsonl(activity_file)
+
+        for entry in entries:
+            file_path = entry.get("file")
+            if not file_path:
+                continue
+            ts = entry.get("ts", "")
+            tool = entry.get("tool", "")
+
+            # Convert absolute path to relative
+            if file_path.startswith(project_root):
+                rel = file_path[len(project_root):].lstrip("/")
+            else:
+                rel = file_path
+
+            # Keep the most recent entry per file
+            if rel not in result or ts > result[rel].get("last_active", ""):
+                result[rel] = {
+                    "agent": agent_id,
+                    "last_active": ts,
+                    "tool": tool,
+                }
+
+    return result
+
+
 class TrackHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -110,6 +160,10 @@ class TrackHandler(http.server.BaseHTTPRequestHandler):
                         {"agent": a["id"], "ticket": f.get("ticket", "?")}
                     )
             self._json(fm)
+        elif path == "/api/agents/activity":
+            graph_data = _get_graph_data("file")
+            project_root = graph_data["project_root"] if graph_data else str(paths.TRACK_DIR.parent)
+            self._json(_get_agent_file_activity(project_root))
         elif path == "/api/sessions":
             self._json(_get_sessions())
         elif path.startswith("/api/sessions/") and path.endswith("/activity"):
