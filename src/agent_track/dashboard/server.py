@@ -11,7 +11,7 @@ import sys
 from urllib.parse import parse_qs, urlparse
 
 from agent_track.services import paths
-from agent_track.dashboard.render import render_dashboard, render_ticket_detail
+from agent_track.dashboard.render import render_dashboard, render_graph_page, render_ticket_detail
 from agent_track.services.models import all_agents, all_tickets, parse_board_entries
 
 
@@ -59,6 +59,32 @@ def _get_security_alerts(limit: int = 50) -> list[dict]:
     return _read_jsonl(paths.SECURITY_DIR / "access-log.jsonl")[:limit]
 
 
+# ── Graph & analysis data helpers ─────────────────────────────────────────────
+
+
+def _get_graph_data(graph_type: str) -> dict | None:
+    """Read a graph JSON file. graph_type is 'file' or 'symbol'."""
+    filename = f"{graph_type}-graph.json"
+    path = paths.GRAPH_DIR / filename
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _get_analysis_data(analysis_type: str) -> dict | None:
+    """Read an analysis JSON file. analysis_type is 'duplicates', 'test-coverage', 'security'."""
+    path = paths.ANALYSIS_DIR / f"{analysis_type}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 class TrackHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -93,6 +119,29 @@ class TrackHandler(http.server.BaseHTTPRequestHandler):
             self._json(_get_conflicts())
         elif path == "/api/security/alerts":
             self._json(_get_security_alerts())
+        elif path == "/graph":
+            self._html(render_graph_page())
+        elif path == "/api/graph/file":
+            data = _get_graph_data("file")
+            self._json(data if data else {"error": "No graph data. Run `track analyze` first."})
+        elif path == "/api/graph/symbol":
+            data = _get_graph_data("symbol")
+            self._json(data if data else {"error": "No graph data. Run `track analyze` first."})
+        elif path == "/api/analysis/duplicates":
+            data = _get_analysis_data("duplicates")
+            self._json(data if data else {"error": "No analysis data."})
+        elif path == "/api/analysis/coverage":
+            data = _get_analysis_data("test-coverage")
+            self._json(data if data else {"error": "No analysis data."})
+        elif path == "/api/analysis/security":
+            data = _get_analysis_data("security")
+            self._json(data if data else {"error": "No analysis data."})
+        elif path == "/api/events":
+            self._sse()
+        elif path.endswith(".css"):
+            self._static(path, "text/css")
+        elif path.endswith(".js"):
+            self._static(path, "application/javascript")
         else:
             self.send_error(404)
 
@@ -108,6 +157,40 @@ class TrackHandler(http.server.BaseHTTPRequestHandler):
         data = json.dumps(obj, indent=2).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _sse(self) -> None:
+        """Server-Sent Events endpoint for real-time dashboard updates."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        # Send an initial heartbeat
+        try:
+            self.wfile.write(b"event: connected\ndata: {}\n\n")
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _static(self, url_path: str, content_type: str) -> None:
+        """Serve static files from the dashboard directory."""
+        static_dir = Path(__file__).parent
+        # Strip leading slash, prevent directory traversal
+        rel = url_path.lstrip("/")
+        if ".." in rel:
+            self.send_error(403)
+            return
+        file_path = static_dir / rel
+        if not file_path.is_file():
+            self.send_error(404)
+            return
+        data = file_path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)

@@ -121,6 +121,131 @@ def render_page(title: str, body: str) -> str:
     )
 
 
+_graph_js_cache: str | None = None
+
+
+def _load_graph_js() -> str:
+    global _graph_js_cache
+    if _graph_js_cache is None:
+        gjs = _STATIC_DIR / "graph.js"
+        _graph_js_cache = gjs.read_text(encoding="utf-8") if gjs.exists() else ""
+    return _graph_js_cache
+
+
+def render_graph_page() -> str:
+    """Render the interactive d3 force-directed graph page."""
+    graph_js = _load_graph_js()
+
+    body = (
+        '<div class="header"><div class="header-left">'
+        '<div class="header-logo">.t</div><h1>.track — The Score</h1></div>'
+        '<div class="header-stats">'
+        '<a href="/" class="tab-link">Kanban</a>'
+        '<a href="/graph" class="tab-link tab-active">Graph</a>'
+        '</div></div>'
+        '<div class="graph-layout">'
+        '<div class="graph-sidebar">'
+        '<div class="sidebar-section">'
+        '<div class="sidebar-title">Overlays</div>'
+        '<label class="overlay-toggle"><input type="checkbox" id="overlay-agents" checked> Agents</label>'
+        '<label class="overlay-toggle"><input type="checkbox" id="overlay-dupes"> Duplicates</label>'
+        '<label class="overlay-toggle"><input type="checkbox" id="overlay-tests"> Tests</label>'
+        '<label class="overlay-toggle"><input type="checkbox" id="overlay-security"> Security</label>'
+        '</div>'
+        '<div class="sidebar-section">'
+        '<div class="sidebar-title">Filters</div>'
+        '<select id="filter-dir" class="graph-select"><option value="">All directories</option></select>'
+        '<select id="filter-lang" class="graph-select"><option value="">All languages</option></select>'
+        '</div>'
+        '<div class="sidebar-section" id="inspector">'
+        '<div class="sidebar-title">Inspector</div>'
+        '<div class="inspector-content"><span class="text-muted">Click a node to inspect</span></div>'
+        '</div>'
+        '</div>'
+        '<div class="graph-canvas" id="graph-container"></div>'
+        '</div>'
+    )
+
+    # Inline d3 from CDN + graph.js
+    d3_script = '<script src="https://d3js.org/d3.v7.min.js"></script>'
+    graph_script = f"<script>{graph_js}</script>" if graph_js else ""
+
+    page_html = (
+        f"<!DOCTYPE html>\n"
+        f'<html lang="en"><head><meta charset="utf-8">'
+        f'<meta name="viewport" content="width=device-width,initial-scale=1">\n'
+        f'<link rel="icon" href="data:image/svg+xml,{_FAVICON_SVG}">\n'
+        f"<title>.track — The Score</title>"
+        f"<style>{_load_css()}</style>"
+        f"<style>{_graph_css()}</style>"
+        f"</head>\n<body>{body}{d3_script}{graph_script}</body></html>"
+    )
+    return page_html
+
+
+def _graph_css() -> str:
+    """Additional CSS for the graph page."""
+    return """
+.tab-link { display:inline-flex; padding:4px 12px; border-radius:var(--radius-full);
+  font-size:12px; font-weight:600; color:var(--text-muted); text-decoration:none;
+  font-family:var(--font-mono); }
+.tab-link:hover { color:var(--primary); opacity:1; }
+.tab-active { background:var(--primary); color:var(--primary-fg) !important; }
+
+.graph-layout { display:grid; grid-template-columns:220px 1fr; gap:0;
+  height:calc(100vh - 100px); border:1px solid var(--border); border-radius:var(--radius-lg);
+  overflow:hidden; background:var(--surface); }
+.graph-sidebar { padding:16px; border-right:1px solid var(--border);
+  overflow-y:auto; background:var(--surface); }
+.sidebar-section { margin-bottom:20px; }
+.sidebar-title { font-size:11px; font-weight:600; text-transform:uppercase;
+  letter-spacing:0.06em; color:var(--text-muted); margin-bottom:8px;
+  padding-bottom:6px; border-bottom:1px solid var(--divider); }
+.overlay-toggle { display:flex; align-items:center; gap:8px; font-size:13px;
+  padding:4px 0; cursor:pointer; color:var(--text); }
+.overlay-toggle input { accent-color:var(--accent); }
+.graph-select { width:100%; padding:6px 8px; margin-bottom:6px;
+  background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm);
+  font-size:12px; font-family:var(--font-mono); color:var(--text); }
+.inspector-content { font-size:12px; color:var(--text-secondary); line-height:1.6; }
+.inspector-content .file-name { font-weight:600; font-family:var(--font-mono);
+  color:var(--primary); font-size:13px; margin-bottom:4px; }
+.inspector-content .detail-row { display:flex; justify-content:space-between;
+  padding:2px 0; }
+.inspector-content .detail-label { color:var(--text-muted); }
+.text-muted { color:var(--text-muted); }
+
+.graph-canvas { position:relative; overflow:hidden; background:#1a1a2e; }
+.graph-canvas svg { width:100%; height:100%; }
+
+/* Node styles */
+.node circle { stroke:#333; stroke-width:1; cursor:pointer; transition:opacity 0.2s; }
+.node text { font-family:var(--font-mono); font-size:9px; fill:#999;
+  pointer-events:none; }
+.node:hover circle { stroke:var(--accent); stroke-width:2; }
+.node.selected circle { stroke:#fff; stroke-width:2; }
+.node.duplicate circle { fill:#ffd700 !important; }
+.node.untested circle { stroke:#ff4444; stroke-width:2; stroke-dasharray:4,2; }
+.node.security-finding circle { fill:#ff4444 !important; }
+.node .agent-halo { fill:none; stroke:#00ff88; stroke-width:2; opacity:0; }
+.node .agent-halo.active { opacity:0.8; animation:pulse 2s ease-in-out infinite; }
+
+.link { stroke-opacity:0.3; fill:none; }
+.link.import { stroke:#555; stroke-width:1; }
+.link.call { stroke:#666; stroke-width:0.5; stroke-dasharray:3,3; }
+.link.highlighted { stroke:var(--accent); stroke-opacity:0.8; stroke-width:2; }
+
+@keyframes pulse {
+  0%, 100% { opacity:0.4; r:inherit; }
+  50% { opacity:0.9; }
+}
+
+.tooltip { position:absolute; background:rgba(0,0,0,0.85); color:#fff; padding:6px 10px;
+  border-radius:4px; font-size:11px; font-family:var(--font-mono); pointer-events:none;
+  z-index:100; white-space:nowrap; }
+"""
+
+
 def render_dashboard(agent_filter: str | None = None) -> str:
     tickets = all_tickets()
     agents = all_agents()
@@ -146,6 +271,10 @@ def render_dashboard(agent_filter: str | None = None) -> str:
         f'<span class="stat-value">{len(active_agents)}</span> agents</div>'
         f'<div class="stat" style="color:var(--text-muted);font-family:var(--font-mono);font-size:11px">'
         f"{datetime.now(timezone.utc).strftime('%H:%M:%S')}</div>"
+        f'<a href="/" style="padding:4px 12px;border-radius:999px;font-size:12px;font-weight:600;'
+        f'background:var(--primary);color:var(--primary-fg);font-family:var(--font-mono);text-decoration:none">Kanban</a>'
+        f'<a href="/graph" style="padding:4px 12px;border-radius:999px;font-size:12px;font-weight:600;'
+        f'color:var(--text-muted);font-family:var(--font-mono);text-decoration:none">Graph</a>'
         f"</div></div>"
     )
 

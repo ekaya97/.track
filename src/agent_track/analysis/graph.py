@@ -189,3 +189,22 @@ def cmd_analyze(args: argparse.Namespace) -> None:
                 print(f"  {lang}: {count}")
         print(f"\nGraph: {paths.GRAPH_DIR}")
         print(f"Analysis: {paths.ANALYSIS_DIR}")
+
+    # Watch mode
+    if getattr(args, "watch", False):
+        from agent_track.analysis.watcher import watch_and_analyze
+
+        def on_change(added, modified, deleted):
+            n = len(added) + len(modified) + len(deleted)
+            print(f"\n{n} file(s) changed, re-analyzing...")
+            files = walk_project(project_root)
+            new_results: list[ParseResult] = []
+            for f in files:
+                if detect_language(f) == "python":
+                    rel = str(f.relative_to(project_root))
+                    source = f.read_text(errors="replace")
+                    new_results.append(parse_python_file(source, rel))
+            run_analysis(new_results, str(project_root), graph_dir=paths.GRAPH_DIR)
+            print(f"Updated graph: {len(new_results)} Python files")
+
+        watch_and_analyze(project_root, on_change)
