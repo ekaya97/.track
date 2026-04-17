@@ -7,20 +7,30 @@
 [![License](https://img.shields.io/github/license/ekaya97/.track)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/agent-track)](https://pypi.org/project/agent-track/)
 
-Lightweight ticketing & agent coordination for multi-agent coding workflows.
+The conductor's podium for AI-assisted development.
 
-Built to orchestrate multiple Claude Code sessions (or any AI agents) working on the same codebase in parallel. All state lives in a `.track/` directory as markdown and JSON files. No database, no external services, **zero dependencies** -- Python stdlib only.
+**.track** lets you orchestrate multiple Claude Code sessions (or any AI agents) working on the same codebase in parallel. It **passively observes** agent activity via hooks — zero token overhead, zero agent compliance required — and gives you a live dashboard to see everything at once.
 
 ![Dashboard](docs/dashboard.png)
 
-## Install
+## Why
 
-The PyPI package name is `agent-track` (`.track` is not a valid package name):
+You have 3 Claude Code sessions open. Each one is productive in isolation. But:
+- Which agent is working on what?
+- Are two agents editing the same file?
+- Did anyone run the tests?
+- Is the original plan being followed?
+
+**.track** answers all of these automatically. Agents don't need to do anything special — hooks capture everything passively.
+
+## Install
 
 ```bash
 pipx install agent-track    # recommended
 # or
 pip install agent-track
+# or
+uv add agent-track
 ```
 
 This gives you the `track` command.
@@ -28,120 +38,168 @@ This gives you the `track` command.
 ## Quick Start
 
 ```bash
-track init                                          # create .track/ directory
-track create --title "Fix auth bug" --priority high # create a ticket
-track register --agent agent-alpha                  # register an agent
-track claim T-0001 --agent agent-alpha              # claim the ticket
-track update T-0001 --status in-progress --agent agent-alpha
-track log T-0001 --agent agent-alpha -m "Found root cause in token_refresh()"
-track board --agent agent-alpha -m "Starting work on auth module"
-track list                                          # see all active tickets
-track serve -d                                      # start web dashboard
+track init                                              # set up .track/ + hooks
+track create --title "Fix auth bug" --desc "token refresh fails after 2h"  # create + auto-claim
+track list                                              # see all tickets
+track board --last 10                                   # see what's happening
+track serve                                             # web dashboard at localhost:7777
+```
+
+That's the entire agent workflow. Everything else — registration, heartbeats, file tracking, conflict detection — happens automatically via hooks.
+
+## How It Works
+
+### Passive Observation
+
+`.track` installs Claude Code hooks that fire on every session start, tool use, and session end. No agent compliance needed:
+
+| Event | What .track captures |
+|-------|---------------------|
+| Session start | Auto-register agent with NATO phonetic alias |
+| File write/edit | Track which agent touched which file, detect conflicts |
+| Bash command | Capture commands, detect test runs and failures |
+| Session end | Auto-deregister, generate session summary |
+
+### Split Storage
+
+- **`.track/`** (in your repo, git-tracked) — tickets, board, config
+- **`~/.track/projects/{key}/`** (ephemeral, per-machine) — agents, sessions, locks, activity logs
+
+This means tickets are shared across worktrees and collaborators, while runtime state never causes merge conflicts.
+
+## Agent API
+
+Agents only need 3 commands:
+
+```bash
+# Create a ticket (auto-claimed to the current session)
+track create --title "Fix auth bug" --desc "See docs/plan.md:45-72"
+
+# Create a ticket for another agent to pick up
+track create --title "Add retry logic" --no-claim
+
+# Mark work as done
+track update T-0001 --status review
+```
+
+Agent identity is auto-detected from the active session. No `--agent` flags needed.
+
+### Board
+
+```bash
+track board --last 10                          # read
+track board -m "blocked on auth module"        # post
+track board -m "found the bug" --ticket T-0001 # post with ticket ref
 ```
 
 ## Features
 
-- **Zero dependencies** -- pure Python stdlib, single `pip install`
-- **File-based storage** -- markdown tickets + JSON agents in `.track/`
-- **Concurrent-safe** -- `fcntl.flock` advisory locks, atomic writes
-- **Web dashboard** -- kanban board at `localhost:7777` with auto-refresh
-- **Agent coordination** -- heartbeats, file ownership tracking, message board
-- **Git-friendly** -- all state is plain text, easy to commit and review
+- **Passive observation** — all tracking via Claude Code hooks, zero token overhead
+- **Auto-registration** — agents get a NATO phonetic alias on session start
+- **File conflict detection** — warns when two agents edit the same file
+- **Sensitive file protection** — blocks/warns on access to `.env`, `*.pem`, etc.
+- **Session summaries** — auto-generated on session end (files modified, test runs, errors)
+- **Todo capture** — agent's internal task list tracked with diffs
+- **Web dashboard** — kanban board + agent panel + file conflicts + board at `localhost:7777`
+- **Zero dependencies** — pure Python stdlib
+- **Git-friendly** — tickets are markdown, all state is plain text
+- **Worktree-safe** — resolves all worktrees to the same project identity
 
 ## Commands
 
+### For agents (minimal)
+
 | Command | Description |
 |---------|-------------|
-| `track init` | Create `.track/` directory structure |
-| `track create --title "..." [-p priority] [-l labels]` | Create a ticket |
-| `track list [--status X] [--agent X] [--label X]` | List tickets (excludes done by default) |
-| `track show T-0001` | Print full ticket markdown |
-| `track claim T-0001 --agent X` | Claim a ticket (checks dependencies) |
-| `track update T-0001 --status X [--agent X]` | Update ticket (enforces valid transitions) |
-| `track log T-0001 --agent X -m "message"` | Append to ticket work log |
-| `track board --agent X -m "message"` | Post to the message board |
-| `track board --last 10` | Read recent board entries |
-| `track register [--agent X] [--capabilities python,ui]` | Register an agent |
-| `track deregister --agent X [--release-tickets]` | Deregister an agent |
-| `track files --add path --agent X --ticket T-0001` | Track file ownership |
-| `track files --check path` | Check who owns a file |
-| `track heartbeat --agent X` | Update heartbeat timestamp |
+| `track create --title "..." [--desc "..."]` | Create ticket (auto-claimed) |
+| `track create --title "..." --no-claim` | Create ticket for others |
+| `track update T-NNNN --status review` | Update ticket status |
+| `track board -m "message"` | Post to the board |
+| `track board --last N` | Read recent board entries |
+| `track list` | List active tickets |
+
+### For humans (full control)
+
+| Command | Description |
+|---------|-------------|
+| `track init` | Set up `.track/` directory + hooks |
+| `track show T-NNNN` | Print full ticket details |
+| `track claim T-NNNN` | Claim an existing ticket |
 | `track stale [--reclaim]` | Detect/reclaim stale agents |
-| `track serve [--port 7777] [-d]` | Start web dashboard |
-| `track stop` | Stop background dashboard |
+| `track serve [--port 7777]` | Start web dashboard |
+| `track stop` | Stop dashboard |
+
+### Legacy (still supported)
+
+| Command | Description |
+|---------|-------------|
+| `track register [--agent X]` | Manually register an agent |
+| `track deregister --agent X` | Manually deregister |
+| `track heartbeat --agent X` | Manual heartbeat |
+| `track log T-NNNN -m "..."` | Append to ticket work log |
+| `track files --add/--check/--list` | Manual file tracking |
 
 ## Ticket Lifecycle
 
 ```
-backlog -> claimed -> in-progress -> review -> done
+backlog → claimed → in-progress → review → done
 ```
 
 Valid transitions are enforced. Use `--force` to override.
 
-## TRACK_DIR Discovery
-
-`track init` always creates `.track/` in the current working directory. All other commands walk up from the current directory to find an existing `.track/` folder (like `git` finds `.git/`).
-
-You can override discovery with the `TRACK_DIR` environment variable (always takes priority):
-
-```bash
-TRACK_DIR=/path/to/.track track list
-```
-
-## Dashboard
-
-Start the web dashboard with `track serve` (default port 7777). Use `-d` to daemonize:
-
-```bash
-track serve -d        # background mode
-track stop            # stop the background server
-```
-
-The dashboard shows a kanban board, active agents, file ownership conflicts, and the message board. Auto-refreshes every 5 seconds. Click an agent card to filter by that agent.
-
-![Ticket Detail](docs/ticket_detail.png)
-
 ## CLAUDE.md Integration
 
-To make Claude Code sessions automatically follow the agent protocol, add the following to your project's `CLAUDE.md`:
+Add this to your project's `CLAUDE.md`:
 
 ```markdown
 ## Agent Protocol
 
-This project uses `track` for multi-agent coordination. All task state lives in `.track/`.
+Your session is **automatically tracked** via hooks. No registration, heartbeats, or deregistration needed.
 
-### On session start
-1. Register: `track register --capabilities python,ui`
-2. Read the board: `track board --last 20`
-3. Check work: `track list --status backlog`
-4. Claim a ticket: `track claim T-NNNN --agent {your-id}`
+Before starting work:
+- `track board --last 10`
+- `track list`
 
-### While working
-- Log progress: `track log T-NNNN --agent {your-id} -m "what you did"`
-- Track files: `track files --add path/to/file.py --agent {your-id} --ticket T-NNNN`
-- Check ownership: `track files --check path/to/file.py`
-- Post to board: `track board --agent {your-id} --ticket T-NNNN -m "message"`
-- Heartbeat: `track heartbeat --agent {your-id}`
+Create a ticket (auto-claimed to you):
+- `track create --title "Fix auth bug" --desc "See docs/plan.md:45-72"`
 
-### When done
-- `track update T-NNNN --status review --agent {your-id}`
+Create for another agent: `track create --title "..." --no-claim`
 
-### On session end
-- `track deregister --agent {your-id} --release-tickets`
+While working:
+- Reference ticket IDs in git commits: `T-0001: fix token refresh`
+- Post to the board: `track board -m "message" --ticket T-NNNN`
 
-### Rules
+When done:
+- `track update T-NNNN --status review`
+
+Rules:
 - One ticket at a time
-- Check the board before claiming
-- Don't edit another agent's files without checking ownership
-- Reference ticket IDs in commits: `T-0001: description`
-- Never modify `.track/` files directly — use the `track` CLI
+- Check the board before starting work
+- Reference ticket IDs in commits
+- Never modify `.track/` files directly
 ```
 
 A full example is available at [`src/agent_track/data/CLAUDE.md.example`](src/agent_track/data/CLAUDE.md.example).
 
+## Dashboard
+
+```bash
+track serve          # start at http://localhost:7777
+track stop           # stop
+```
+
+The dashboard shows:
+- **Kanban board** — tickets across all statuses
+- **Agent panel** — active agents with heartbeat, current ticket, model
+- **File ownership** — who's editing what, conflict warnings
+- **Message board** — recent agent communication
+- **Agent todos** — live view of each agent's internal task list (on ticket detail)
+
+![Ticket Detail](docs/ticket_detail.png)
+
 ## Platform
 
-macOS and Linux only. Uses `fcntl.flock` for file locking and `os.fork()` for daemon mode, which are not available on Windows.
+macOS and Linux. Windows is not supported (`fcntl.flock`, `os.fork` are Unix-only). WSL works.
 
 ## License
 
