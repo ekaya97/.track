@@ -142,8 +142,11 @@ class TrackHandler(http.server.BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         qs = parse_qs(parsed.query)
-        if path == "/" or path == "/graph":
+        if path == "/":
             self._html(render_graph_page())
+        elif path == "/kanban":
+            agent_filter = qs.get("agent", [None])[0]
+            self._html(render_dashboard(agent_filter))
         elif path == "/ticket":
             self._html(render_ticket_detail(qs.get("id", [""])[0]))
         elif path == "/api/tickets":
@@ -176,7 +179,7 @@ class TrackHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/security/alerts":
             self._json(_get_security_alerts())
         elif path == "/graph":
-            self._html(render_graph_page())
+            self._html(render_graph_page())  # alias
         elif path == "/api/graph/file":
             data = _get_graph_data("file")
             self._json(data if data else {"error": "No graph data. Run `track analyze` first."})

@@ -208,6 +208,7 @@ def render_graph_page() -> str:
         f'<div class="header-stat"><span class="stat-value">{total_tickets}</span> tickets</div>'
         f'<div class="header-stat"><span class="stat-dot stat-dot-{"green" if active_agents else "muted"}"></span>'
         f'<span class="stat-value">{len(active_agents)}</span> agents</div>'
+        '<a href="/kanban" class="nav-link">Kanban</a>'
         '<button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#9788;</button>'
         '</div>'
         '</div>'
@@ -356,6 +357,13 @@ body { margin:0; background:var(--bg); color:var(--text);
   display:flex; align-items:center; justify-content:center; }
 .theme-toggle:hover { background:var(--surface-2); }
 
+/* ── Nav links ────────────────────────────────────────── */
+.nav-link { padding:4px 12px; border-radius:999px; font-size:12px; font-weight:600;
+  color:var(--text-muted); font-family:'IBM Plex Mono',monospace; text-decoration:none; }
+.nav-link:hover { color:var(--text); opacity:1; }
+.nav-link-active { background:var(--primary); color:var(--primary-fg); }
+.nav-link-active:hover { color:var(--primary-fg); }
+
 /* ── Layout ────────────────────────────────────────────── */
 .dash-layout { display:grid; grid-template-columns:220px 1fr 0; height:calc(100vh - 40px);
   transition:grid-template-columns .25s ease; }
@@ -492,10 +500,8 @@ def render_dashboard(agent_filter: str | None = None) -> str:
         f'<span class="stat-value">{len(active_agents)}</span> agents</div>'
         f'<div class="stat" style="color:var(--text-muted);font-family:var(--font-mono);font-size:11px">'
         f"{datetime.now(timezone.utc).strftime('%H:%M:%S')}</div>"
-        f'<a href="/" style="padding:4px 12px;border-radius:999px;font-size:12px;font-weight:600;'
-        f'background:var(--primary);color:var(--primary-fg);font-family:var(--font-mono);text-decoration:none">Kanban</a>'
-        f'<a href="/graph" style="padding:4px 12px;border-radius:999px;font-size:12px;font-weight:600;'
-        f'color:var(--text-muted);font-family:var(--font-mono);text-decoration:none">Graph</a>'
+        f'<a href="/kanban" class="nav-link nav-link-active">Kanban</a>'
+        f'<a href="/" class="nav-link">Graph</a>'
         f"</div></div>"
     )
 

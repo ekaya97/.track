@@ -45,6 +45,12 @@ a:hover { opacity: 0.7; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 3px; }
 
+.nav-link { padding:4px 12px; border-radius:999px; font-size:12px; font-weight:600;
+  color:var(--text-muted); font-family:var(--font-mono); text-decoration:none; }
+.nav-link:hover { color:var(--text); opacity:1; }
+.nav-link-active { background:var(--primary); color:var(--primary-fg); }
+.nav-link-active:hover { color:var(--primary-fg); }
+
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--divider); }
 .header-left { display: flex; align-items: center; gap: 12px; }
 .header-logo { width: 28px; height: 28px; background: var(--primary); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; color: var(--primary-fg); font-weight: 700; font-size: 13px; font-family: var(--font-mono); }
