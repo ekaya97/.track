@@ -18,12 +18,15 @@ from agent_track.services.commands import (
     cmd_claim,
     cmd_create,
     cmd_deregister,
+    cmd_done,
     cmd_files,
     cmd_heartbeat,
     cmd_init,
     cmd_list,
     cmd_log,
+    cmd_next,
     cmd_register,
+    cmd_review,
     cmd_show,
     cmd_stale,
     cmd_update,
@@ -65,6 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--label", help="Filter by label")
     p.add_argument("--priority", choices=PRIORITIES)
     p.add_argument("--all", "-a", action="store_true", help="Include done tickets")
+    p.add_argument("--mine", action="store_true", help="Show only my tickets")
+    p.add_argument("--available", action="store_true", help="Show unclaimed tickets with all deps met")
 
     p = sub.add_parser("show", help="Show ticket details")
     p.add_argument("ticket_id", help="Ticket ID (e.g. T-0001)")
@@ -75,7 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="Override existing claim")
 
     p = sub.add_parser("update", help="Update ticket metadata")
-    p.add_argument("ticket_id", help="Ticket ID")
+    p.add_argument("ticket_ids", nargs="+", help="Ticket ID(s)")
     p.add_argument("--status", "-s", choices=STATUSES)
     p.add_argument("--agent", help="Agent performing update")
     p.add_argument("--priority", choices=PRIORITIES)
@@ -84,6 +89,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--remove-label", help="Remove a label")
     p.add_argument("--title", help="Update title")
     p.add_argument("--force", action="store_true", help="Force invalid transition")
+
+    p = sub.add_parser("done", help="Mark ticket(s) as done (shortcut)")
+    p.add_argument("ticket_ids", nargs="+", help="Ticket ID(s)")
+    p.add_argument("--agent", help="Agent performing update")
+
+    p = sub.add_parser("review", help="Mark ticket(s) as review (shortcut)")
+    p.add_argument("ticket_ids", nargs="+", help="Ticket ID(s)")
+    p.add_argument("--agent", help="Agent performing update")
+
+    sub.add_parser("next", help="Show highest-priority available ticket")
 
     p = sub.add_parser("log", help="Append to ticket work log")
     p.add_argument("ticket_id", help="Ticket ID")
@@ -207,6 +222,9 @@ def main() -> None:
         "show": cmd_show,
         "claim": cmd_claim,
         "update": cmd_update,
+        "done": cmd_done,
+        "review": cmd_review,
+        "next": cmd_next,
         "log": cmd_log,
         "board": cmd_board,
         "register": cmd_register,

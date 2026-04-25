@@ -195,6 +195,27 @@ def cmd_list(args: argparse.Namespace) -> None:
         tickets = [
             (m, b, p) for m, b, p in tickets if m.get("claimed_by") == args.agent
         ]
+    if getattr(args, "mine", False):
+        agent_data = _detect_current_agent()
+        if agent_data:
+            agent_id = agent_data["id"]
+            tickets = [
+                (m, b, p) for m, b, p in tickets if m.get("claimed_by") == agent_id
+            ]
+        else:
+            print("Warning: No active agent session detected for --mine filter.")
+    if getattr(args, "available", False):
+        # Build status lookup for dep checking
+        all_t = all_tickets()
+        status_map = {m.get("id", ""): m.get("status", "") for m, _b, _p in all_t}
+        filtered = []
+        for m, b, p in tickets:
+            if m.get("status") != "backlog" or m.get("claimed_by"):
+                continue
+            deps = m.get("depends_on") or []
+            if all(status_map.get(d) == "done" for d in deps):
+                filtered.append((m, b, p))
+        tickets = filtered
     if args.label:
         tickets = [
             (m, b, p) for m, b, p in tickets if args.label in (m.get("labels") or [])
@@ -219,9 +240,42 @@ def cmd_list(args: argparse.Namespace) -> None:
         )
 
 
+def _git_commits_for_ticket(ticket_id: str) -> list[str]:
+    """Find git commits referencing a ticket ID."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "log", "--all", "--oneline", f"--grep={ticket_id}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip().splitlines()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return []
+
+
 def cmd_show(args: argparse.Namespace) -> None:
     meta, body, path = read_ticket(args.ticket_id)
     print(path.read_text(encoding="utf-8"))
+
+    # Show dependency statuses inline
+    deps = meta.get("depends_on") or []
+    if deps:
+        print("\nDependencies:")
+        for dep in deps:
+            try:
+                dm, _, _ = read_ticket(dep)
+                print(f"  {dep} ({dm.get('status', '?')}) — {dm.get('title', '?')}")
+            except SystemExit:
+                print(f"  {dep} (not found)")
+
+    # Show linked git commits
+    commits = _git_commits_for_ticket(args.ticket_id)
+    if commits:
+        print(f"\nGit commits ({len(commits)}):")
+        for c in commits[:20]:
+            print(f"  {c}")
 
 
 def cmd_claim(args: argparse.Namespace) -> None:
@@ -292,15 +346,8 @@ def cmd_claim(args: argparse.Namespace) -> None:
     print(f"Claimed {tid} for {agent}.")
 
 
-def cmd_update(args: argparse.Namespace) -> None:
-    tid = args.ticket_id
-    # Auto-detect agent if not provided
-    agent_id = args.agent
-    if not agent_id:
-        agent_data = _detect_current_agent()
-        if agent_data:
-            agent_id = agent_data["id"]
-
+def _update_one(tid: str, args: argparse.Namespace, agent_id: str | None) -> None:
+    """Update a single ticket. Extracted for batch support."""
     with file_lock(f"{tid}.lock"):
         meta, body, path = read_ticket(tid)
         if args.status:
@@ -308,19 +355,19 @@ def cmd_update(args: argparse.Namespace) -> None:
             new_status = args.status
             valid_transitions = {
                 "backlog": ["claimed"],
-                "claimed": ["in-progress", "backlog"],
-                "in-progress": ["review", "backlog"],
+                "claimed": ["in-progress", "review", "done", "backlog"],
+                "in-progress": ["review", "done", "backlog"],
                 "review": ["done", "in-progress"],
                 "done": [],
             }
             allowed = valid_transitions.get(old_status, [])
             if new_status not in allowed and not args.force:
                 print(
-                    f"Error: Cannot transition {old_status} -> {new_status}. "
+                    f"Error: Cannot transition {tid} {old_status} -> {new_status}. "
                     f"Allowed: {', '.join(allowed) or 'none'}. Use --force to override.",
                     file=sys.stderr,
                 )
-                sys.exit(1)
+                return
             meta["status"] = new_status
             if new_status == "backlog":
                 meta["claimed_by"] = None
@@ -347,24 +394,89 @@ def cmd_update(args: argparse.Namespace) -> None:
             )
         if args.priority:
             meta["priority"] = args.priority
-        if args.branch:
+        if getattr(args, "branch", None):
             meta["branch"] = args.branch
-        if args.add_label:
+        if getattr(args, "add_label", None):
             labels = meta.get("labels") or []
             if args.add_label not in labels:
                 labels.append(args.add_label)
             meta["labels"] = labels
-        if args.remove_label:
+        if getattr(args, "remove_label", None):
             labels = meta.get("labels") or []
             if args.remove_label in labels:
                 labels.remove(args.remove_label)
             meta["labels"] = labels
-        if args.title:
+        if getattr(args, "title", None):
             meta["title"] = args.title
         write_ticket(meta, body, path)
 
-    # Run verification when ticket transitions to done
     if args.status == "done":
+        try:
+            from agent_track.analysis.verify import run_verification
+            vr = run_verification(tid)
+            if vr:
+                print(f"Verification ({tid}): {vr.result}")
+                if vr.follow_up_needed:
+                    print("  Follow-up may be needed — check verification.json")
+        except Exception:
+            pass
+
+    print(f"Updated {tid}.")
+
+
+def cmd_update(args: argparse.Namespace) -> None:
+    agent_id = args.agent
+    if not agent_id:
+        agent_data = _detect_current_agent()
+        if agent_data:
+            agent_id = agent_data["id"]
+
+    ticket_ids = args.ticket_ids
+    for tid in ticket_ids:
+        _update_one(tid, args, agent_id)
+
+
+def _transition_shortcut(tid: str, target_status: str, agent_id: str | None) -> None:
+    """Transition a ticket directly to target_status, skipping intermediate states."""
+    if not agent_id:
+        agent_data = _detect_current_agent()
+        if agent_data:
+            agent_id = agent_data["id"]
+
+    with file_lock(f"{tid}.lock"):
+        meta, body, path = read_ticket(tid)
+        old_status = meta.get("status")
+        if old_status == target_status:
+            print(f"{tid} is already {target_status}.")
+            return
+        if old_status == "done":
+            print(f"Error: {tid} is already done.", file=sys.stderr)
+            sys.exit(1)
+        meta["status"] = target_status
+        if target_status == "backlog":
+            meta["claimed_by"] = None
+            meta["claimed_at"] = None
+        if target_status == "done" and agent_id:
+            adata = find_agent(agent_id)
+            if adata:
+                if adata.get("current_ticket") == tid:
+                    adata["current_ticket"] = None
+                adata.setdefault("history", []).append(
+                    {
+                        "ticket": tid,
+                        "action": f"status:{target_status}",
+                        "timestamp": now_iso(),
+                    }
+                )
+                write_agent(adata)
+        poster = agent_id or meta.get("claimed_by") or "unknown"
+        post_to_board(
+            poster, tid, f"status:{target_status}",
+            f"Updated {tid} to {target_status}",
+        )
+        write_ticket(meta, body, path)
+
+    if target_status == "done":
         try:
             from agent_track.analysis.verify import run_verification
             vr = run_verification(tid)
@@ -373,9 +485,61 @@ def cmd_update(args: argparse.Namespace) -> None:
                 if vr.follow_up_needed:
                     print("  Follow-up may be needed — check verification.json")
         except Exception:
-            pass  # Non-critical
+            pass
 
-    print(f"Updated {tid}.")
+    print(f"{tid} -> {target_status}.")
+
+
+def cmd_done(args: argparse.Namespace) -> None:
+    for tid in args.ticket_ids:
+        _transition_shortcut(tid, "done", args.agent if hasattr(args, "agent") else None)
+
+
+def cmd_review(args: argparse.Namespace) -> None:
+    for tid in args.ticket_ids:
+        _transition_shortcut(tid, "review", args.agent if hasattr(args, "agent") else None)
+
+
+def cmd_next(_args: argparse.Namespace) -> None:
+    """Show the highest-priority unclaimed ticket with all deps satisfied."""
+    tickets = all_tickets()
+    priority_order = {p: i for i, p in enumerate(paths.PRIORITIES)}
+
+    # Build status lookup for dependency checking
+    status_map: dict[str, str] = {}
+    for meta, _b, _p in tickets:
+        status_map[meta.get("id", "")] = meta.get("status", "")
+
+    candidates = []
+    for meta, body, path in tickets:
+        if meta.get("status") != "backlog":
+            continue
+        if meta.get("claimed_by"):
+            continue
+        # Check all deps are done
+        deps = meta.get("depends_on") or []
+        all_met = all(status_map.get(d) == "done" for d in deps)
+        if not all_met:
+            continue
+        candidates.append((meta, body, path))
+
+    if not candidates:
+        print("No available tickets with all dependencies met.")
+        return
+
+    # Sort by priority (critical=0 first), then by ID
+    candidates.sort(
+        key=lambda t: (
+            priority_order.get(t[0].get("priority", "medium"), 99),
+            t[0].get("id", ""),
+        )
+    )
+    meta = candidates[0][0]
+    print(f"{meta['id']}  {meta.get('priority', '?'):<10} {meta.get('title', '?')}")
+    deps = meta.get("depends_on") or []
+    if deps:
+        print(f"  deps: {', '.join(deps)} (all done)")
+    print(f"\n  track claim {meta['id']}")
 
 
 def cmd_log(args: argparse.Namespace) -> None:

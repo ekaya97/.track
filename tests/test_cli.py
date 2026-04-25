@@ -36,7 +36,7 @@ class TestCLISmoke:
         _, env = track_dir
         result = _run(["--version"], env)
         assert result.returncode == 0
-        assert "0.1.0" in result.stdout
+        assert "0.2.0" in result.stdout
 
     def test_init(self, track_dir):
         tmp_path, env = track_dir
