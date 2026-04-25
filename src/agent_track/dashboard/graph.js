@@ -296,41 +296,192 @@
     const el = document.querySelector("#inspector .inspector-content");
     if (!el) return;
 
-    const symbols = d.symbols || [];
-    const funcs = symbols.filter((s) => s.type === "function" || s.type === "async_function").length;
-    const classes = symbols.filter((s) => s.type === "class").length;
+    // Open the right panel
+    if (typeof openPanel === "function") openPanel();
+    document.querySelector(".dash-layout").classList.add("panel-open");
 
-    let dupeInfo = "";
+    const symbols = d.symbols || [];
+    const funcs = symbols.filter((s) => s.type === "function" || s.type === "async_function");
+    const classes = symbols.filter((s) => s.type === "class");
+
+    // Agent & ticket info
+    let ownershipHtml = "";
+    const activity = agentActivity[d.id];
+    if (activity) {
+      const color = _agentColor(activity.agent);
+      ownershipHtml = `<div class="inspector-section">
+        <div class="inspector-section-title">Ownership</div>
+        <div class="detail-row"><span class="detail-label">Agent</span><span class="detail-value" style="color:${color};font-weight:600">${activity.agent}</span></div>
+        <div class="detail-row"><span class="detail-label">Last touch</span><span class="detail-value">${activity.tool} @ ${activity.last_active.slice(11, 19)}</span></div>
+      </div>`;
+    }
+
+    // Analysis findings
+    // Analysis findings
+    let analysisHtml = "";
+    let analysisItems = [];
+
+    // Duplicates — show actual function pairs
     if (analysisData.duplicates && analysisData.duplicates.clusters) {
       const dupes = analysisData.duplicates.clusters.filter((c) =>
         c.functions.some((f) => f.file === d.id)
       );
-      if (dupes.length) dupeInfo = `<div class="detail-row"><span class="detail-label">Duplicates</span><span>${dupes.length} cluster(s)</span></div>`;
+      if (dupes.length) {
+        let dupeDetail = "";
+        for (const cluster of dupes) {
+          const thisFile = cluster.functions.filter((f) => f.file === d.id);
+          const otherFiles = cluster.functions.filter((f) => f.file !== d.id);
+          const simLabel = cluster.type === "exact" ? "exact" :
+            cluster.similarity ? Math.round(cluster.similarity * 100) + "%" : "near";
+          for (const fn of thisFile) {
+            const others = otherFiles.map((o) =>
+              `<div style="font-size:10px;color:var(--text-muted);padding-left:12px;margin:1px 0">&#8627; ${o.file.split("/").pop()}:<b>${o.name}</b> L${o.line_start}</div>`
+            ).join("");
+            dupeDetail += `<div style="margin:4px 0">` +
+              `<div style="font-size:11px"><span style="color:var(--warning)">fn:</span> <b>${fn.name}</b> <span class="sidebar-count">${simLabel}</span> L${fn.line_start}-${fn.line_end}</div>` +
+              others + `</div>`;
+          }
+        }
+        analysisItems.push(
+          `<div style="margin-bottom:6px"><div class="detail-row"><span class="detail-label" style="color:var(--warning)">&#9888; Duplicates</span><span class="detail-value">${dupes.length} cluster(s)</span></div>` +
+          dupeDetail + `</div>`
+        );
+      }
     }
 
-    let secInfo = "";
+    // Security findings — show details
     if (analysisData.security && analysisData.security.findings) {
-      const findings = analysisData.security.findings.filter((f) => f.file === d.id);
-      if (findings.length) secInfo = `<div class="detail-row"><span class="detail-label">Security</span><span style="color:#ff4444">${findings.length} finding(s)</span></div>`;
+      const secFindings = analysisData.security.findings.filter((f) => f.file === d.id);
+      if (secFindings.length) {
+        let secDetail = secFindings.map((f) =>
+          `<div style="font-size:10px;color:var(--text-muted);margin:2px 0">L${f.line}: ${f.pattern || f.type}</div>`
+        ).join("");
+        analysisItems.push(
+          `<div style="margin-bottom:6px"><div class="detail-row"><span class="detail-label" style="color:var(--danger)">&#9888; Security</span><span class="detail-value">${secFindings.length} finding(s)</span></div>` +
+          secDetail + `</div>`
+        );
+      }
     }
 
-    let agentInfo = "";
-    const activity = agentActivity[d.id];
-    if (activity) {
-      const color = _agentColor(activity.agent);
-      agentInfo = `<div class="detail-row"><span class="detail-label">Agent</span><span style="color:${color};font-weight:600">${activity.agent}</span></div>` +
-        `<div class="detail-row"><span class="detail-label">Last touch</span><span>${activity.tool} @ ${activity.last_active.slice(11, 19)}</span></div>`;
+    // Coverage
+    if (analysisData.coverage && analysisData.coverage.untested_files) {
+      const uf = analysisData.coverage.untested_files.find((f) => f.file === d.id);
+      if (uf) {
+        const fns = (uf.functions || []).map((n) =>
+          `<div style="font-size:10px;color:var(--text-muted);margin:1px 0">&#9675; ${n}</div>`
+        ).join("");
+        analysisItems.push(
+          `<div style="margin-bottom:6px"><div class="detail-row"><span class="detail-label" style="color:var(--danger)">&#9675; Untested</span><span class="detail-value">no coverage</span></div>` +
+          fns + `</div>`
+        );
+      }
+    }
+
+    if (analysisItems.length) {
+      analysisHtml = `<div class="inspector-section"><div class="inspector-section-title">Analysis</div>${analysisItems.join("")}</div>`;
+    }
+
+    // Connections
+    let connectionsHtml = "";
+    if (graphData && graphData.edges) {
+      const imports = graphData.edges.filter((e) => {
+        const src = typeof e.source === "object" ? e.source.id : e.source;
+        return src === d.id && e.type === "import";
+      }).length;
+      const importedBy = graphData.edges.filter((e) => {
+        const tgt = typeof e.target === "object" ? e.target.id : e.target;
+        return tgt === d.id && e.type === "import";
+      }).length;
+      if (imports || importedBy) {
+        connectionsHtml = `<div class="inspector-section"><div class="inspector-section-title">Connections</div>
+          <div class="detail-row"><span class="detail-label">Imports</span><span class="detail-value">${imports} files</span></div>
+          <div class="detail-row"><span class="detail-label">Imported by</span><span class="detail-value">${importedBy} files</span></div>
+        </div>`;
+      }
+    }
+
+    // Symbols (collapsed)
+    let symbolsHtml = "";
+    if (funcs.length || classes.length) {
+      const items = [
+        ...classes.map((s) => `<div style="font-size:11px;padding:1px 0;color:var(--text-secondary)">cls: ${s.name}</div>`),
+        ...funcs.map((s) => `<div style="font-size:11px;padding:1px 0;color:var(--text-secondary)">fn: ${s.name}</div>`),
+      ];
+      symbolsHtml = `<div class="inspector-section">
+        <div class="inspector-section-title">Symbols (${funcs.length + classes.length})</div>
+        <div style="max-height:120px;overflow-y:auto">${items.join("")}</div>
+      </div>`;
     }
 
     el.innerHTML =
       `<div class="file-name">${d.id}</div>` +
-      agentInfo +
-      `<div class="detail-row"><span class="detail-label">Language</span><span>${d.language}</span></div>` +
-      `<div class="detail-row"><span class="detail-label">Lines</span><span>${d.lines}</span></div>` +
-      `<div class="detail-row"><span class="detail-label">Functions</span><span>${funcs}</span></div>` +
-      `<div class="detail-row"><span class="detail-label">Classes</span><span>${classes}</span></div>` +
-      dupeInfo +
-      secInfo;
+      `<div style="display:flex;gap:8px;margin-bottom:8px">` +
+      `<span class="sidebar-count">${d.language}</span>` +
+      `<span class="sidebar-count">${d.lines} lines</span>` +
+      `<span class="sidebar-count">${funcs.length} fn</span>` +
+      `<span class="sidebar-count">${classes.length} cls</span>` +
+      `</div>` +
+      ownershipHtml +
+      analysisHtml +
+      connectionsHtml +
+      symbolsHtml;
+
+    // Update board panel to show messages relevant to this node's ticket
+    _updateBoardForNode(d);
+  }
+
+  function _updateBoardForNode(d) {
+    const boardEl = document.querySelector("#panel-board");
+    if (!boardEl) return;
+
+    // Find the ticket associated with this file via agent activity
+    const activity = agentActivity[d.id];
+    const ticketId = activity ? activity.ticket : null;
+
+    fetch("/api/board?limit=50")
+      .then((r) => r.json())
+      .then((entries) => {
+        // Filter: show entries for this ticket, or if no ticket, show all
+        let filtered = entries;
+        if (ticketId) {
+          filtered = entries.filter((e) => e.ticket === ticketId);
+          if (filtered.length === 0) filtered = entries.slice(0, 5);
+        } else {
+          filtered = entries.slice(0, 5);
+        }
+
+        const titleEl = boardEl.querySelector(".sidebar-title");
+        if (titleEl) {
+          const countEl = titleEl.querySelector(".sidebar-count");
+          const label = ticketId ? `Board · ${ticketId}` : "Board";
+          if (countEl) {
+            titleEl.childNodes[0].textContent = label + " ";
+            countEl.textContent = filtered.length;
+          }
+        }
+
+        // Render entries
+        const container = boardEl.querySelector(".sidebar-title");
+        if (!container) return;
+        let html = "";
+        for (const e of filtered) {
+          const ts = (e.timestamp || "?").slice(11, 16);
+          const who = e.agent || "?";
+          const tRef = e.ticket && e.ticket !== "system" ? ` · ${e.ticket}` : "";
+          const msg = e.message || "";
+          html += `<div class="board-item"><div class="board-item-header">` +
+            `<span class="board-item-who">${who}${tRef}</span>` +
+            `<span class="board-item-when">${ts}</span></div>` +
+            `<div class="board-item-msg">${msg}</div></div>`;
+        }
+        if (!filtered.length) html = '<div class="text-muted" style="font-size:12px;padding:8px">No messages</div>';
+
+        // Replace content after the title
+        const existing = boardEl.querySelectorAll(".board-item, .text-muted");
+        existing.forEach((el) => el.remove());
+        container.insertAdjacentHTML("afterend", html);
+      })
+      .catch(() => {});
   }
 
   function populateFilters() {
@@ -440,4 +591,65 @@
       // Silently reconnect
     };
   }
+
+  // ── Agent pill interactions ─────────────────────────────────────────────
+  let activeAgentFilter = null;
+
+  document.querySelectorAll(".agent-pill").forEach(function (pill) {
+    const agentId = pill.dataset.agent;
+
+    pill.addEventListener("mouseenter", function () {
+      if (activeAgentFilter) return; // don't override click filter
+      if (!window._graphNodes) return;
+      window._graphNodes.classed("dimmed", function (d) {
+        const act = agentActivity[d.id];
+        return !act || act.agent !== agentId;
+      });
+    });
+
+    pill.addEventListener("mouseleave", function () {
+      if (activeAgentFilter) return;
+      if (!window._graphNodes) return;
+      window._graphNodes.classed("dimmed", false);
+    });
+
+    pill.addEventListener("click", function () {
+      if (!window._graphNodes) return;
+      if (activeAgentFilter === agentId) {
+        // Toggle off
+        activeAgentFilter = null;
+        window._graphNodes.classed("dimmed", false);
+        document.querySelectorAll(".agent-pill").forEach(function (p) {
+          p.style.opacity = "";
+        });
+      } else {
+        activeAgentFilter = agentId;
+        window._graphNodes.classed("dimmed", function (d) {
+          const act = agentActivity[d.id];
+          return !act || act.agent !== agentId;
+        });
+        document.querySelectorAll(".agent-pill").forEach(function (p) {
+          p.style.opacity = p.dataset.agent === agentId ? "1" : "0.4";
+        });
+      }
+    });
+  });
+
+  // ── Keyboard shortcuts ──────────────────────────────────────────────────
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") {
+      // Deselect node and close panel
+      if (window._graphNodes) window._graphNodes.classed("selected", false);
+      selectedNode = null;
+      document.querySelector(".dash-layout").classList.remove("panel-open");
+      // Clear agent filter
+      if (activeAgentFilter) {
+        activeAgentFilter = null;
+        window._graphNodes.classed("dimmed", false);
+        document.querySelectorAll(".agent-pill").forEach(function (p) {
+          p.style.opacity = "";
+        });
+      }
+    }
+  });
 })();

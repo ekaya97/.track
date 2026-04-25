@@ -32,12 +32,14 @@ def track_env(tmp_path, monkeypatch):
 
 
 def _write_agent(home_dir: Path, sid: str, agent_id: str, status: str = "active"):
+    from agent_track.services.utils import now_iso
+
     agent = {
         "id": agent_id,
         "session_id": sid,
         "status": status,
         "registered_at": "2026-04-15T10:00:00Z",
-        "last_heartbeat": "2026-04-15T12:50:00Z",
+        "last_heartbeat": now_iso(),
     }
     (home_dir / "agents" / f"{sid}.json").write_text(json.dumps(agent))
 

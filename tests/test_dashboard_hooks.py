@@ -40,11 +40,13 @@ def track_env(tmp_path, monkeypatch):
 
 
 def _write_agent(home_dir: Path, sid: str, agent_id: str, status: str = "active"):
+    from agent_track.services.utils import now_iso
+
     agent = {
         "id": agent_id,
         "session_id": sid,
         "registered_at": "2026-04-15T10:00:00Z",
-        "last_heartbeat": "2026-04-15T11:00:00Z",
+        "last_heartbeat": now_iso(),
         "status": status,
         "model": "claude-sonnet-4-6",
         "current_ticket": None,

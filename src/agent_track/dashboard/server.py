@@ -18,7 +18,7 @@ from agent_track.services.models import all_agents, all_tickets, parse_board_ent
 
 # ── Data helpers for hook-captured state ─────────────────────────────────────
 
-from agent_track.dashboard.helpers import read_jsonl as _read_jsonl
+from agent_track.dashboard.helpers import effective_status, read_jsonl as _read_jsonl
 
 
 def _get_sessions() -> list[dict]:
@@ -32,7 +32,7 @@ def _get_sessions() -> list[dict]:
             results.append({
                 "session_id": data.get("session_id", f.stem),
                 "agent_id": data.get("id"),
-                "status": data.get("status"),
+                "status": effective_status(data),
                 "model": data.get("model"),
                 "registered_at": data.get("registered_at"),
                 "last_heartbeat": data.get("last_heartbeat"),
@@ -104,7 +104,7 @@ def _get_agent_file_activity(project_root: str) -> dict:
         except (json.JSONDecodeError, OSError):
             continue
 
-        if agent_data.get("status") not in ("active", "idle"):
+        if effective_status(agent_data) not in ("active", "idle"):
             continue
 
         agent_id = agent_data.get("id", "?")
@@ -131,6 +131,7 @@ def _get_agent_file_activity(project_root: str) -> dict:
                     "agent": agent_id,
                     "last_active": ts,
                     "tool": tool,
+                    "ticket": agent_data.get("current_ticket"),
                 }
 
     return result
@@ -141,8 +142,8 @@ class TrackHandler(http.server.BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         qs = parse_qs(parsed.query)
-        if path == "/":
-            self._html(render_dashboard(agent_filter=qs.get("agent", [None])[0]))
+        if path == "/" or path == "/graph":
+            self._html(render_graph_page())
         elif path == "/ticket":
             self._html(render_ticket_detail(qs.get("id", [""])[0]))
         elif path == "/api/tickets":

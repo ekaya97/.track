@@ -14,7 +14,7 @@ from agent_track.services.models import (
     parse_board_entries,
     read_ticket,
 )
-from agent_track.dashboard.helpers import read_jsonl
+from agent_track.dashboard.helpers import effective_status, read_jsonl
 
 _STATIC_DIR = Path(__file__).parent
 _FAVICON_SVG = (
@@ -133,18 +133,90 @@ def _load_graph_js() -> str:
 
 
 def render_graph_page() -> str:
-    """Render the interactive d3 force-directed graph page."""
+    """Render the full-screen graph-first dashboard."""
     graph_js = _load_graph_js()
+    tickets = all_tickets()
+    agents = all_agents()
+    board_entries = parse_board_entries(limit=10)
+    # Compute effective status for all agents
+    for a in agents:
+        a["_effective_status"] = effective_status(a)
+    active_agents = [a for a in agents if a["_effective_status"] in ("active", "idle")]
+
+    # Mini kanban counts
+    counts: dict[str, int] = {s: 0 for s in paths.STATUSES}
+    for meta, _, _ in tickets:
+        s = meta.get("status", "backlog")
+        if s in counts:
+            counts[s] += 1
+    total_tickets = sum(counts.values())
+
+    # Agent pills HTML
+    agent_pills = ""
+    for a in active_agents:
+        tid = a.get("current_ticket") or ""
+        es = a["_effective_status"]
+        dot_cls = "dot-active" if es == "active" else "dot-idle"
+        agent_pills += (
+            f'<div class="agent-pill" data-agent="{_h(a["id"])}">'
+            f'<span class="agent-pill-dot {dot_cls}"></span>'
+            f'<span class="agent-pill-name">{_h(a["id"])}</span>'
+            f'<span class="agent-pill-status">{_h(es)}</span>'
+            f'<span class="agent-pill-ticket">{_h(tid)}</span>'
+            f'</div>'
+        )
+    if not active_agents:
+        agent_pills = '<div class="text-muted" style="font-size:12px">No active agents</div>'
+
+    # Board HTML
+    board_html = ""
+    for e in board_entries:
+        ts = e.get("timestamp", "?")
+        short_ts = ts[11:16] if len(ts) > 16 else ts
+        agent_name = e.get("agent", "?")
+        ticket_ref = e.get("ticket", "")
+        msg = e.get("message", "")
+        ticket_str = f" · {_h(ticket_ref)}" if ticket_ref and ticket_ref != "system" else ""
+        board_html += (
+            f'<div class="board-item">'
+            f'<div class="board-item-header">'
+            f'<span class="board-item-who">{_h(agent_name)}{ticket_str}</span>'
+            f'<span class="board-item-when">{_h(short_ts)}</span>'
+            f'</div>'
+            f'<div class="board-item-msg">{_h(msg)}</div>'
+            f'</div>'
+        )
+    if not board_entries:
+        board_html = '<div class="text-muted" style="font-size:12px;padding:8px">No messages</div>'
+
+    # Mini kanban HTML
+    kanban_mini = ""
+    status_labels = {"backlog": "BKL", "claimed": "CLM", "in-progress": "WIP", "review": "REV", "done": "DON"}
+    for s in paths.STATUSES:
+        c = counts[s]
+        active_cls = " mini-active" if c > 0 and s in ("claimed", "in-progress") else ""
+        kanban_mini += f'<div class="mini-status{active_cls}"><span class="mini-count">{c}</span><span class="mini-label">{status_labels.get(s, s)}</span></div>'
 
     body = (
-        '<div class="header"><div class="header-left">'
-        '<div class="header-logo">.t</div><h1>.track — The Score</h1></div>'
-        '<div class="header-stats">'
-        '<a href="/" class="tab-link">Kanban</a>'
-        '<a href="/graph" class="tab-link tab-active">Graph</a>'
-        '</div></div>'
-        '<div class="graph-layout">'
-        '<div class="graph-sidebar">'
+        # Header
+        '<div class="dash-header">'
+        '<div class="dash-header-left">'
+        '<div class="header-logo">.t</div>'
+        '<span class="header-title">.track</span>'
+        '</div>'
+        '<div class="dash-header-right">'
+        f'<div class="header-stat"><span class="stat-value">{total_tickets}</span> tickets</div>'
+        f'<div class="header-stat"><span class="stat-dot stat-dot-{"green" if active_agents else "muted"}"></span>'
+        f'<span class="stat-value">{len(active_agents)}</span> agents</div>'
+        '<button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#9788;</button>'
+        '</div>'
+        '</div>'
+
+        # Three-column layout
+        '<div class="dash-layout">'
+
+        # Left sidebar
+        '<div class="dash-sidebar" id="left-sidebar">'
         '<div class="sidebar-section">'
         '<div class="sidebar-title">Overlays</div>'
         '<label class="overlay-toggle"><input type="checkbox" id="overlay-agents" checked> Agents</label>'
@@ -157,93 +229,241 @@ def render_graph_page() -> str:
         '<select id="filter-dir" class="graph-select"><option value="">All directories</option></select>'
         '<select id="filter-lang" class="graph-select"><option value="">All languages</option></select>'
         '</div>'
+        '<div class="sidebar-section">'
+        f'<div class="sidebar-title">Agents <span class="sidebar-count">{len(active_agents)}</span></div>'
+        f'{agent_pills}'
+        '</div>'
+        '<div class="sidebar-section">'
+        '<div class="sidebar-title">Tickets</div>'
+        f'<div class="mini-kanban">{kanban_mini}</div>'
+        '</div>'
+        '</div>'
+
+        # Graph canvas
+        '<div class="graph-canvas" id="graph-container"></div>'
+
+        # Right panel (collapsed by default)
+        '<div class="dash-panel" id="right-panel">'
+        '<div class="panel-inner">'
         '<div class="sidebar-section" id="inspector">'
-        '<div class="sidebar-title">Inspector</div>'
+        '<div class="sidebar-title">Inspector <button class="panel-close" onclick="closePanel()">&#10005;</button></div>'
         '<div class="inspector-content"><span class="text-muted">Click a node to inspect</span></div>'
         '</div>'
+        '<div class="sidebar-section" id="panel-board">'
+        f'<div class="sidebar-title">Board <span class="sidebar-count">{len(board_entries)}</span></div>'
+        f'{board_html}'
         '</div>'
-        '<div class="graph-canvas" id="graph-container"></div>'
         '</div>'
+        '</div>'
+
+        '</div>'  # end dash-layout
     )
 
-    # Inline d3 from CDN + graph.js
-    d3_script = '<script src="https://d3js.org/d3.v7.min.js"></script>'
+    # Theme init script (runs before d3)
+    theme_script = """<script>
+(function(){
+  var s=localStorage.getItem('track-theme');
+  if(!s){s=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'}
+  document.documentElement.setAttribute('data-theme',s);
+  updateThemeIcon(s);
+})();
+function toggleTheme(){
+  var c=document.documentElement.getAttribute('data-theme');
+  var n=c==='dark'?'light':'dark';
+  document.documentElement.setAttribute('data-theme',n);
+  localStorage.setItem('track-theme',n);
+  updateThemeIcon(n);
+}
+function updateThemeIcon(t){
+  var b=document.querySelector('.theme-toggle');
+  if(b)b.innerHTML=t==='dark'?'&#9790;':'&#9788;';
+}
+function closePanel(){
+  document.getElementById('right-panel').classList.remove('panel-open');
+}
+function openPanel(){
+  document.getElementById('right-panel').classList.add('panel-open');
+}
+</script>"""
+
+    # Inline d3
+    d3_path = _STATIC_DIR / "d3.v7.min.js"
+    d3_inline = d3_path.read_text(encoding="utf-8") if d3_path.exists() else ""
+    d3_script = f"<script>{d3_inline}</script>" if d3_inline else '<script src="https://d3js.org/d3.v7.min.js"></script>'
     graph_script = f"<script>{graph_js}</script>" if graph_js else ""
 
-    page_html = (
+    return (
         f"<!DOCTYPE html>\n"
         f'<html lang="en"><head><meta charset="utf-8">'
         f'<meta name="viewport" content="width=device-width,initial-scale=1">\n'
         f'<link rel="icon" href="data:image/svg+xml,{_FAVICON_SVG}">\n'
-        f"<title>.track — The Score</title>"
+        f"<title>.track</title>"
         f"<style>{_load_css()}</style>"
         f"<style>{_graph_css()}</style>"
-        f"</head>\n<body>{body}{d3_script}{graph_script}</body></html>"
+        f"</head>\n<body>{theme_script}{body}{d3_script}{graph_script}</body></html>"
     )
-    return page_html
 
 
 def _graph_css() -> str:
-    """Additional CSS for the graph page."""
+    """CSS for the graph-first dashboard."""
     return """
-.tab-link { display:inline-flex; padding:4px 12px; border-radius:var(--radius-full);
-  font-size:12px; font-weight:600; color:var(--text-muted); text-decoration:none;
-  font-family:var(--font-mono); }
-.tab-link:hover { color:var(--primary); opacity:1; }
-.tab-active { background:var(--primary); color:var(--primary-fg) !important; }
+/* ── Theme ─────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg:#1e1e1e; --surface:#252525; --surface-2:#333; --surface-3:#444;
+  --text:#ccc; --text-secondary:#aaa; --text-muted:#777;
+  --primary:#fff; --primary-fg:#000;
+  --accent:#db924b; --border:#3a3a3a; --divider:#333;
+  --graph-bg:#141422; --graph-node-text:#999;
+  --success:#4caf50; --success-bg:rgba(76,175,80,.15);
+  --warning:#ff9800; --danger:#ef5350; --info:#42a5f5;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.4);
+}
+[data-theme="light"] {
+  --bg:#faf9f5; --surface:#f0f0f0; --surface-2:#e6e6e6; --surface-3:#dcdcdc;
+  --text:#4a4a4a; --text-secondary:#737373; --text-muted:#8f8f8f;
+  --primary:#000; --primary-fg:#fff;
+  --accent:#db924b; --border:#d1d1d1; --divider:#e0e0e0;
+  --graph-bg:#f0efe8; --graph-node-text:#666;
+  --success:#388e3c; --success-bg:rgba(56,142,60,.1);
+  --warning:#f57c00; --danger:#d32f2f; --info:#1976d2;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.08);
+}
+html:not([data-theme]) { color-scheme:light dark; }
+@media(prefers-color-scheme:dark){ html:not([data-theme]){
+  --bg:#1e1e1e;--surface:#252525;--text:#ccc;--graph-bg:#141422;
+}}
 
-.graph-layout { display:grid; grid-template-columns:220px 1fr; gap:0;
-  height:calc(100vh - 100px); border:1px solid var(--border); border-radius:var(--radius-lg);
-  overflow:hidden; background:var(--surface); }
-.graph-sidebar { padding:16px; border-right:1px solid var(--border);
-  overflow-y:auto; background:var(--surface); }
-.sidebar-section { margin-bottom:20px; }
-.sidebar-title { font-size:11px; font-weight:600; text-transform:uppercase;
-  letter-spacing:0.06em; color:var(--text-muted); margin-bottom:8px;
-  padding-bottom:6px; border-bottom:1px solid var(--divider); }
-.overlay-toggle { display:flex; align-items:center; gap:8px; font-size:13px;
-  padding:4px 0; cursor:pointer; color:var(--text); }
-.overlay-toggle input { accent-color:var(--accent); }
-.graph-select { width:100%; padding:6px 8px; margin-bottom:6px;
+body { margin:0; background:var(--bg); color:var(--text);
+  font-family:'Inter',system-ui,sans-serif; overflow:hidden; height:100vh; }
+
+/* ── Header ────────────────────────────────────────────── */
+.dash-header { display:flex; align-items:center; justify-content:space-between;
+  height:40px; padding:0 12px; background:var(--surface); border-bottom:1px solid var(--border);
+  flex-shrink:0; }
+.dash-header-left { display:flex; align-items:center; gap:8px; }
+.header-logo { font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:14px;
+  background:var(--primary); color:var(--primary-fg); padding:2px 6px; border-radius:4px; }
+.header-title { font-size:14px; font-weight:600; color:var(--text); }
+.dash-header-right { display:flex; align-items:center; gap:16px; }
+.header-stat { font-size:12px; color:var(--text-muted); font-family:'IBM Plex Mono',monospace;
+  display:flex; align-items:center; gap:4px; }
+.stat-value { font-weight:600; color:var(--text); }
+.stat-dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+.stat-dot-green { background:#4caf50; }
+.stat-dot-muted { background:var(--text-muted); }
+.theme-toggle { background:none; border:1px solid var(--border); border-radius:var(--radius-sm);
+  color:var(--text); cursor:pointer; font-size:16px; width:28px; height:28px;
+  display:flex; align-items:center; justify-content:center; }
+.theme-toggle:hover { background:var(--surface-2); }
+
+/* ── Layout ────────────────────────────────────────────── */
+.dash-layout { display:grid; grid-template-columns:220px 1fr 0; height:calc(100vh - 40px);
+  transition:grid-template-columns .25s ease; }
+.dash-layout.panel-open { grid-template-columns:220px 1fr 320px; }
+
+/* ── Left sidebar ──────────────────────────────────────── */
+.dash-sidebar { padding:12px; border-right:1px solid var(--border); overflow-y:auto;
+  background:var(--surface); font-size:13px; }
+.sidebar-section { margin-bottom:16px; }
+.sidebar-title { font-size:10px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.08em; color:var(--text-muted); margin-bottom:6px;
+  padding-bottom:4px; border-bottom:1px solid var(--divider);
+  display:flex; align-items:center; justify-content:space-between; }
+.sidebar-count { font-size:10px; font-weight:500; color:var(--text-muted);
+  background:var(--surface-2); padding:1px 5px; border-radius:8px; }
+.overlay-toggle { display:flex; align-items:center; gap:6px; font-size:12px;
+  padding:3px 0; cursor:pointer; color:var(--text); }
+.overlay-toggle input { accent-color:var(--accent); width:14px; height:14px; }
+.graph-select { width:100%; padding:5px 6px; margin-bottom:4px;
   background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm);
-  font-size:12px; font-family:var(--font-mono); color:var(--text); }
-.inspector-content { font-size:12px; color:var(--text-secondary); line-height:1.6; }
-.inspector-content .file-name { font-weight:600; font-family:var(--font-mono);
-  color:var(--primary); font-size:13px; margin-bottom:4px; }
-.inspector-content .detail-row { display:flex; justify-content:space-between;
-  padding:2px 0; }
-.inspector-content .detail-label { color:var(--text-muted); }
+  font-size:11px; font-family:'IBM Plex Mono',monospace; color:var(--text); }
 .text-muted { color:var(--text-muted); }
 
-.graph-canvas { position:relative; overflow:hidden; background:#1a1a2e; }
+/* ── Agent pills ───────────────────────────────────────── */
+.agent-pill { display:flex; align-items:center; gap:6px; padding:4px 6px;
+  border-radius:var(--radius-sm); cursor:pointer; font-size:12px;
+  transition:background .15s; }
+.agent-pill:hover { background:var(--surface-2); }
+.agent-pill-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.agent-pill-dot.dot-active { background:var(--success); }
+.agent-pill-dot.dot-idle { background:var(--warning); }
+.agent-pill-status { font-size:9px; color:var(--text-muted); text-transform:uppercase; }
+.agent-pill-name { font-family:'IBM Plex Mono',monospace; font-weight:500;
+  color:var(--text); font-size:11px; }
+.agent-pill-ticket { font-family:'IBM Plex Mono',monospace; color:var(--accent);
+  font-size:10px; margin-left:auto; }
+
+/* ── Mini kanban ───────────────────────────────────────── */
+.mini-kanban { display:flex; gap:2px; }
+.mini-status { flex:1; text-align:center; padding:4px 2px; border-radius:var(--radius-sm);
+  background:var(--surface-2); }
+.mini-status.mini-active { background:var(--success-bg); }
+.mini-count { display:block; font-size:14px; font-weight:700; color:var(--text);
+  font-family:'IBM Plex Mono',monospace; }
+.mini-label { display:block; font-size:8px; font-weight:600; text-transform:uppercase;
+  letter-spacing:.04em; color:var(--text-muted); }
+
+/* ── Graph canvas ──────────────────────────────────────── */
+.graph-canvas { position:relative; overflow:hidden; background:var(--graph-bg); }
 .graph-canvas svg { width:100%; height:100%; }
 
-/* Node styles */
-.node circle { stroke:#333; stroke-width:1; cursor:pointer; transition:opacity 0.2s; }
-.node text { font-family:var(--font-mono); font-size:9px; fill:#999;
+/* ── Right panel ───────────────────────────────────────── */
+.dash-panel { overflow:hidden; width:0; opacity:0; transition:opacity .2s ease;
+  border-left:1px solid var(--border); background:var(--surface); }
+.dash-panel.panel-open, .dash-layout.panel-open .dash-panel { width:auto; opacity:1; }
+.panel-inner { padding:12px; overflow-y:auto; height:100%; }
+.panel-close { background:none; border:none; color:var(--text-muted); cursor:pointer;
+  font-size:14px; padding:0 2px; line-height:1; }
+.panel-close:hover { color:var(--danger); }
+
+/* ── Inspector ─────────────────────────────────────────── */
+.inspector-content { font-size:12px; color:var(--text-secondary); line-height:1.6; }
+.inspector-content .file-name { font-weight:600; font-family:'IBM Plex Mono',monospace;
+  color:var(--primary); font-size:13px; margin-bottom:6px; word-break:break-all; }
+.inspector-content .detail-row { display:flex; justify-content:space-between; padding:2px 0; }
+.inspector-content .detail-label { color:var(--text-muted); font-size:11px; }
+.inspector-content .detail-value { font-family:'IBM Plex Mono',monospace; font-size:11px; }
+.inspector-section { margin-top:10px; padding-top:8px; border-top:1px solid var(--divider); }
+.inspector-section-title { font-size:10px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.06em; color:var(--text-muted); margin-bottom:4px; }
+
+/* ── Board items (right panel) ─────────────────────────── */
+.board-item { padding:6px 0; border-bottom:1px solid var(--divider); font-size:11px; }
+.board-item:last-child { border-bottom:none; }
+.board-item-header { display:flex; justify-content:space-between; margin-bottom:2px; }
+.board-item-who { font-weight:600; color:var(--text); font-family:'IBM Plex Mono',monospace;
+  font-size:10px; }
+.board-item-when { color:var(--text-muted); font-family:'IBM Plex Mono',monospace;
+  font-size:10px; }
+.board-item-msg { color:var(--text-secondary); font-size:11px; line-height:1.4; }
+
+/* ── Graph nodes ───────────────────────────────────────── */
+.node circle { stroke:#333; stroke-width:1; cursor:pointer; transition:opacity .2s; }
+.node text { font-family:'IBM Plex Mono',monospace; font-size:9px; fill:var(--graph-node-text);
   pointer-events:none; }
 .node:hover circle { stroke:var(--accent); stroke-width:2; }
 .node.selected circle { stroke:#fff; stroke-width:2; }
+.node.dimmed { opacity:.12; }
 .node.duplicate circle { fill:#ffd700 !important; }
 .node.untested circle { stroke:#ff4444; stroke-width:2; stroke-dasharray:4,2; }
 .node.security-finding circle { fill:#ff4444 !important; }
 .node .agent-halo { fill:none; stroke:#00ff88; stroke-width:2; opacity:0; }
-.node .agent-halo.active { opacity:0.8; animation:pulse 2s ease-in-out infinite; }
-.node .agent-halo.fading { opacity:0.3; stroke-dasharray:4,3; }
+.node .agent-halo.active { opacity:.8; animation:pulse 2s ease-in-out infinite; }
+.node .agent-halo.fading { opacity:.3; stroke-dasharray:4,3; }
 
-.link { stroke-opacity:0.3; fill:none; }
+.link { stroke-opacity:.3; fill:none; }
 .link.import { stroke:#555; stroke-width:1; }
-.link.call { stroke:#666; stroke-width:0.5; stroke-dasharray:3,3; }
-.link.highlighted { stroke:var(--accent); stroke-opacity:0.8; stroke-width:2; }
+.link.call { stroke:#666; stroke-width:.5; stroke-dasharray:3,3; }
+.link.highlighted { stroke:var(--accent); stroke-opacity:.8; stroke-width:2; }
 
 @keyframes pulse {
-  0%, 100% { opacity:0.4; r:inherit; }
-  50% { opacity:0.9; }
+  0%,100% { opacity:.4; }
+  50% { opacity:.9; }
 }
 
-.tooltip { position:absolute; background:rgba(0,0,0,0.85); color:#fff; padding:6px 10px;
-  border-radius:4px; font-size:11px; font-family:var(--font-mono); pointer-events:none;
-  z-index:100; white-space:nowrap; }
+.tooltip { position:absolute; background:rgba(0,0,0,.85); color:#fff; padding:6px 10px;
+  border-radius:4px; font-size:11px; font-family:'IBM Plex Mono',monospace;
+  pointer-events:none; z-index:100; white-space:nowrap; }
 """
 
 
