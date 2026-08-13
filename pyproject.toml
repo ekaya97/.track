@@ -27,6 +27,9 @@ classifiers = [
     "Topic :: Software Development :: Bug Tracking",
 ]
 
+[tool.hatch.build.targets.sdist]
+exclude = [".claude/settings.local.json"]
+
 [project.scripts]
 track = "agent_track.cli:main"
 
